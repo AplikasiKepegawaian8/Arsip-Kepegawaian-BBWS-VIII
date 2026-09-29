@@ -15,6 +15,10 @@ export default function InfoPegawaiPage() {
   const [selectedEmployee, setSelectedEmployee] = useState<any>(null)
   const [isModalOpen, setIsModalOpen] = useState(false)
 
+  // State untuk modal Edit data pegawai (khusus admin)
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false)
+  const [editFormData, setEditFormData] = useState<any>({})
+
   useEffect(() => {
     const role = localStorage.getItem('role_aktif')
     const nipAktif = localStorage.getItem('nip_aktif')
@@ -28,32 +32,34 @@ export default function InfoPegawaiPage() {
       setIsAdmin(true)
     }
 
-    const fetchData = async () => {
-      // Ambil data user yang sedang login untuk header
-      const { data: userData } = await supabase
-        .from('employees')
-        .select('*')
-        .eq('nip', nipAktif)
-        .single()
-
-      if (userData) setCurrentUser(userData)
-
-      // Ambil daftar SELURUH pegawai untuk direktori
-      const { data: listData, error } = await supabase
-        .from('employees')
-        .select('*')
-        .order('nama', { ascending: true })
-
-      if (error) {
-        console.error('Gagal memuat daftar pegawai:', error.message)
-      } else {
-        setEmployees(listData || [])
-      }
-      setLoading(false)
-    }
-
     fetchData()
   }, [router])
+
+  const fetchData = async () => {
+    const nipAktif = localStorage.getItem('nip_aktif')
+
+    // Ambil data user yang sedang login untuk header
+    const { data: userData } = await supabase
+      .from('employees')
+      .select('*')
+      .eq('nip', nipAktif)
+      .single()
+
+    if (userData) setCurrentUser(userData)
+
+    // Ambil daftar SELURUH pegawai untuk direktori
+    const { data: listData, error } = await supabase
+      .from('employees')
+      .select('*')
+      .order('nama', { ascending: true })
+
+    if (error) {
+      console.error('Gagal memuat daftar pegawai:', error.message)
+    } else {
+      setEmployees(listData || [])
+    }
+    setLoading(false)
+  }
 
   // Filter pencarian pegawai berdasarkan nama atau NIP
   const filteredEmployees = employees.filter(emp => 
@@ -61,10 +67,80 @@ export default function InfoPegawaiPage() {
     emp.nip?.toLowerCase().includes(searchTerm.toLowerCase())
   )
 
-  // Fungsi saat baris pegawai diklik
-  const handleRowClick = (emp: any) => {
+  // Fungsi saat baris pegawai diklik (membuka detail)
+  const handleRowClick = (emp: any, e: React.MouseEvent) => {
+    // Mencegah modal detail terbuka jika tombol aksi diklik
+    if ((e.target as HTMLElement).closest('button')) return
+
     setSelectedEmployee(emp)
     setIsModalOpen(true)
+  }
+
+  // Fungsi untuk menghapus data pegawai (Admin Only)
+  const handleDelete = async (nip: string, nama: string, e: React.MouseEvent) => {
+    e.stopPropagation() // Mencegah baris terklik
+    
+    if (!confirm(`Apakah Anda yakin ingin menghapus data pegawai "${nama}" (NIP: ${nip})?`)) {
+      return
+    }
+
+    const { error } = await supabase
+      .from('employees')
+      .delete()
+      .eq('nip', nip)
+
+    if (error) {
+      alert('Gagal menghapus pegawai: ' + error.message)
+    } else {
+      alert('Data pegawai berhasil dihapus!')
+      fetchData() // Refresh data tabel
+    }
+  }
+
+  // Fungsi untuk membuka form edit (Admin Only)
+  const handleOpenEdit = (emp: any, e: React.MouseEvent) => {
+    e.stopPropagation() // Mencegah baris terklik
+    setEditFormData(emp)
+    setIsEditModalOpen(true)
+  }
+
+  // Fungsi untuk menyimpan perubahan update data pegawai secara lengkap
+  const handleUpdateSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setLoading(true)
+
+    const { error } = await supabase
+      .from('employees')
+      .update({
+        nama: editFormData.nama,
+        nip_lama: editFormData.nip_lama || null,
+        tempat_lahir: editFormData.tempat_lahir || null,
+        tanggal_lahir: editFormData.tanggal_lahir || null,
+        jenis_kelamin: editFormData.jenis_kelamin || null,
+        agama: editFormData.agama || null,
+        alamat: editFormData.alamat || null,
+        no_telp: editFormData.no_telp || null,
+        email: editFormData.email || null,
+        pendidikan_terakhir: editFormData.pendidikan_terakhir || null,
+        institusi_pendidikan: editFormData.institusi_pendidikan || null,
+        tahun_lulus: editFormData.tahun_lulus ? parseInt(editFormData.tahun_lulus) : null,
+        nama_ayah: editFormData.nama_ayah || null,
+        nama_ibu: editFormData.nama_ibu || null,
+        nama_pasangan: editFormData.nama_pasangan || null,
+        jumlah_anak: editFormData.jumlah_anak !== undefined && editFormData.jumlah_anak !== '' ? parseInt(editFormData.jumlah_anak) : 0,
+        role: editFormData.role,
+      })
+      .eq('nip', editFormData.nip)
+
+    setLoading(false)
+
+    if (error) {
+      alert('Gagal memperbarui data: ' + error.message)
+    } else {
+      alert('Data pegawai berhasil diperbarui!')
+      setIsEditModalOpen(false)
+      fetchData()
+    }
   }
 
   if (loading) {
@@ -73,7 +149,7 @@ export default function InfoPegawaiPage() {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar Kiri (Sesuai dengan struktur gambar referensi) */}
+      {/* Sidebar Kiri */}
       <aside className="w-64 bg-white border-r hidden md:block p-4">
         <div className="flex items-center gap-3 mb-8 px-2">
           <img 
@@ -101,7 +177,7 @@ export default function InfoPegawaiPage() {
         <div className="flex justify-between items-center mb-6">
           <div>
             <h1 className="text-xl font-bold text-gray-800">Direktori Info Kepegawaian</h1>
-            <p className="text-xs text-gray-500 mt-0.5">Klik pada baris data pegawai untuk melihat keseluruhan informasi profil</p>
+            <p className="text-xs text-gray-500 mt-0.5">Daftar seluruh pegawai aktif di lingkungan BBWS VIII</p>
           </div>
           
           <div className="flex items-center gap-3">
@@ -148,6 +224,7 @@ export default function InfoPegawaiPage() {
                   <th className="p-3 font-semibold">NIP</th>
                   <th className="p-3 font-semibold">Jabatan / Kontak</th>
                   <th className="p-3 font-semibold">Role</th>
+                  {isAdmin && <th className="p-3 font-semibold text-center">Aksi</th>}
                 </tr>
               </thead>
               <tbody>
@@ -155,7 +232,7 @@ export default function InfoPegawaiPage() {
                   filteredEmployees.map((emp, index) => (
                     <tr 
                       key={emp.id || index} 
-                      onClick={() => handleRowClick(emp)}
+                      onClick={(e) => handleRowClick(emp, e)}
                       className="border-b hover:bg-sky-50 transition cursor-pointer"
                       title="Klik untuk melihat detail lengkap pegawai"
                     >
@@ -178,11 +255,33 @@ export default function InfoPegawaiPage() {
                           {emp.role ? emp.role.toUpperCase() : 'USER'}
                         </span>
                       </td>
+
+                      {/* KOLOM AKSI HANYA UNTUK ADMIN */}
+                      {isAdmin && (
+                        <td className="p-3 text-center">
+                          <div className="flex items-center justify-center gap-2">
+                            <button 
+                              onClick={(e) => handleOpenEdit(emp, e)}
+                              className="bg-amber-500 hover:bg-amber-600 text-white px-2.5 py-1.5 rounded text-xs font-semibold shadow-sm transition"
+                              title="Edit Data"
+                            >
+                              ✏️ Edit
+                            </button>
+                            <button 
+                              onClick={(e) => handleDelete(emp.nip, emp.nama, e)}
+                              className="bg-rose-600 hover:bg-rose-700 text-white px-2.5 py-1.5 rounded text-xs font-semibold shadow-sm transition"
+                              title="Hapus Data"
+                            >
+                              🗑️ Hapus
+                            </button>
+                          </div>
+                        </td>
+                      )}
                     </tr>
                   ))
                 ) : (
                   <tr>
-                    <td colSpan={6} className="p-6 text-center text-gray-400 italic">Tidak ada pegawai yang ditemukan.</td>
+                    <td colSpan={isAdmin ? 7 : 6} className="p-6 text-center text-gray-400 italic">Tidak ada pegawai yang ditemukan.</td>
                   </tr>
                 )}
               </tbody>
@@ -195,8 +294,6 @@ export default function InfoPegawaiPage() {
       {isModalOpen && selectedEmployee && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 relative">
-            
-            {/* Tombol Close */}
             <button 
               onClick={() => setIsModalOpen(false)}
               className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl font-bold bg-gray-100 hover:bg-gray-200 w-8 h-8 rounded-full flex items-center justify-center transition"
@@ -208,7 +305,6 @@ export default function InfoPegawaiPage() {
               <span>📋 Detail Informasi Pegawai</span>
             </h2>
 
-            {/* Header Profil Ringkas */}
             <div className="flex flex-col sm:flex-row items-center gap-6 bg-sky-50 p-4 rounded-xl border border-sky-100 mb-6">
               {selectedEmployee.foto_url ? (
                 <img src={selectedEmployee.foto_url} alt="Foto Profil" className="w-24 h-32 object-cover rounded-lg border shadow-sm" />
@@ -227,10 +323,7 @@ export default function InfoPegawaiPage() {
               </div>
             </div>
 
-            {/* Informasi Lengkap (Grid) */}
             <div className="space-y-6 text-sm">
-              
-              {/* Data Pribadi */}
               <div>
                 <h4 className="font-bold text-sky-800 uppercase text-xs tracking-wider mb-2 border-b pb-1">Data Pribadi & Kontak</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-gray-50 p-4 rounded-xl border">
@@ -243,7 +336,6 @@ export default function InfoPegawaiPage() {
                 </div>
               </div>
 
-              {/* Pendidikan Formal */}
               <div>
                 <h4 className="font-bold text-sky-800 uppercase text-xs tracking-wider mb-2 border-b pb-1">Pendidikan Formal</h4>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-3 bg-gray-50 p-4 rounded-xl border">
@@ -253,7 +345,6 @@ export default function InfoPegawaiPage() {
                 </div>
               </div>
 
-              {/* Data Keluarga */}
               <div>
                 <h4 className="font-bold text-sky-800 uppercase text-xs tracking-wider mb-2 border-b pb-1">Data Keluarga</h4>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3 bg-gray-50 p-4 rounded-xl border">
@@ -263,10 +354,8 @@ export default function InfoPegawaiPage() {
                   <div><span className="text-gray-500 text-xs block">Jumlah Anak:</span> <span className="font-medium">{selectedEmployee.jumlah_anak ?? '-'}</span></div>
                 </div>
               </div>
-
             </div>
 
-            {/* Tombol Tutup Modal */}
             <div className="mt-6 pt-4 border-t flex justify-end">
               <button 
                 onClick={() => setIsModalOpen(false)}
@@ -275,7 +364,234 @@ export default function InfoPegawaiPage() {
                 Tutup Detail
               </button>
             </div>
+          </div>
+        </div>
+      )}
 
+      {/* MODAL / POPUP FORM EDIT PEGAWAI (LENGKAP) */}
+      {isEditModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 relative">
+            <button 
+              onClick={() => setIsEditModalOpen(false)}
+              className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 text-xl font-bold bg-gray-100 hover:bg-gray-200 w-8 h-8 rounded-full flex items-center justify-center transition"
+            >
+              ✕
+            </button>
+
+            <h2 className="text-lg font-bold text-gray-900 mb-4 border-b pb-3">
+              ✏️ Edit Data Pegawai: {editFormData.nama}
+            </h2>
+
+            <form onSubmit={handleUpdateSubmit} className="space-y-6 text-sm">
+              
+              {/* Bagian 1: Data Pribadi & Kontak */}
+              <div>
+                <h3 className="font-bold text-sky-800 uppercase text-xs tracking-wider mb-3 border-b pb-1">Data Pribadi & Kontak</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block font-medium text-gray-700">Nama Lengkap & Gelar</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.nama || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, nama: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                      required 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">NIP (Primary Key - Tidak Dapat Diubah)</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.nip || ''} 
+                      disabled 
+                      className="w-full border rounded p-2 mt-1 bg-gray-100 text-gray-500 cursor-not-allowed" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">NIP Lama</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.nip_lama || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, nip_lama: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Hak Akses (Role)</label>
+                    <select 
+                      value={editFormData.role || 'user'} 
+                      onChange={(e) => setEditFormData({...editFormData, role: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 bg-white focus:outline-none focus:border-sky-500"
+                    >
+                      <option value="user">USER</option>
+                      <option value="admin">ADMIN</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Tempat Lahir</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.tempat_lahir || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, tempat_lahir: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Tanggal Lahir</label>
+                    <input 
+                      type="date" 
+                      value={editFormData.tanggal_lahir || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, tanggal_lahir: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Jenis Kelamin</label>
+                    <select 
+                      value={editFormData.jenis_kelamin || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, jenis_kelamin: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 bg-white focus:outline-none focus:border-sky-500"
+                    >
+                      <option value="">Pilih Jenis Kelamin</option>
+                      <option value="Laki-laki">Laki-laki</option>
+                      <option value="Perempuan">Perempuan</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Agama</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.agama || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, agama: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">No. Telepon</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.no_telp || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, no_telp: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Email</label>
+                    <input 
+                      type="email" 
+                      value={editFormData.email || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, email: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div className="md:col-span-2">
+                    <label className="block font-medium text-gray-700">Alamat</label>
+                    <textarea 
+                      value={editFormData.alamat || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, alamat: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                      rows={2} 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Bagian 2: Pendidikan Formal */}
+              <div>
+                <h3 className="font-bold text-sky-800 uppercase text-xs tracking-wider mb-3 border-b pb-1">Pendidikan Formal</h3>
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div>
+                    <label className="block font-medium text-gray-700">Pendidikan Terakhir</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.pendidikan_terakhir || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, pendidikan_terakhir: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Institusi Pendidikan</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.institusi_pendidikan || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, institusi_pendidikan: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Tahun Lulus</label>
+                    <input 
+                      type="number" 
+                      value={editFormData.tahun_lulus || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, tahun_lulus: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Bagian 3: Data Keluarga */}
+              <div>
+                <h3 className="font-bold text-sky-800 uppercase text-xs tracking-wider mb-3 border-b pb-1">Data Keluarga</h3>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block font-medium text-gray-700">Nama Ayah</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.nama_ayah || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, nama_ayah: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Nama Ibu</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.nama_ibu || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, nama_ibu: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Nama Pasangan (Suami/Istri)</label>
+                    <input 
+                      type="text" 
+                      value={editFormData.nama_pasangan || ''} 
+                      onChange={(e) => setEditFormData({...editFormData, nama_pasangan: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700">Jumlah Anak</label>
+                    <input 
+                      type="number" 
+                      value={editFormData.jumlah_anak ?? ''} 
+                      onChange={(e) => setEditFormData({...editFormData, jumlah_anak: e.target.value})} 
+                      className="w-full border rounded p-2 mt-1 focus:outline-none focus:border-sky-500" 
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Tombol Aksi Form */}
+              <div className="flex justify-end gap-3 pt-4 border-t">
+                <button 
+                  type="button" 
+                  onClick={() => setIsEditModalOpen(false)} 
+                  className="bg-gray-200 hover:bg-gray-300 text-gray-700 px-4 py-2 rounded-lg font-semibold text-xs transition"
+                >
+                  Batal
+                </button>
+                <button 
+                  type="submit" 
+                  disabled={loading} 
+                  className="bg-sky-600 hover:bg-sky-700 text-white px-5 py-2 rounded-lg font-semibold text-xs transition"
+                >
+                  {loading ? 'Menyimpan...' : 'Simpan Perubahan'}
+                </button>
+              </div>
+            </form>
           </div>
         </div>
       )}
