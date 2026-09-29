@@ -61,6 +61,15 @@ export default function InfoPegawaiPage() {
     setLoading(false)
   }
 
+  // Fungsi Logout
+  const handleLogout = () => {
+    if (confirm('Apakah Anda yakin ingin keluar dari akun?')) {
+      localStorage.removeItem('role_aktif')
+      localStorage.removeItem('nip_aktif')
+      router.push('/login')
+    }
+  }
+
   // Filter pencarian pegawai berdasarkan nama atau NIP
   const filteredEmployees = employees.filter(emp => 
     emp.nama?.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -69,7 +78,6 @@ export default function InfoPegawaiPage() {
 
   // Fungsi saat baris pegawai diklik (membuka detail)
   const handleRowClick = (emp: any, e: React.MouseEvent) => {
-    // Mencegah modal detail terbuka jika tombol aksi diklik
     if ((e.target as HTMLElement).closest('button')) return
 
     setSelectedEmployee(emp)
@@ -78,7 +86,7 @@ export default function InfoPegawaiPage() {
 
   // Fungsi untuk menghapus data pegawai (Admin Only)
   const handleDelete = async (nip: string, nama: string, e: React.MouseEvent) => {
-    e.stopPropagation() // Mencegah baris terklik
+    e.stopPropagation()
     
     if (!confirm(`Apakah Anda yakin ingin menghapus data pegawai "${nama}" (NIP: ${nip})?`)) {
       return
@@ -93,13 +101,13 @@ export default function InfoPegawaiPage() {
       alert('Gagal menghapus pegawai: ' + error.message)
     } else {
       alert('Data pegawai berhasil dihapus!')
-      fetchData() // Refresh data tabel
+      fetchData()
     }
   }
 
   // Fungsi untuk membuka form edit (Admin Only)
   const handleOpenEdit = (emp: any, e: React.MouseEvent) => {
-    e.stopPropagation() // Mencegah baris terklik
+    e.stopPropagation()
     setEditFormData(emp)
     setIsEditModalOpen(true)
   }
@@ -149,27 +157,39 @@ export default function InfoPegawaiPage() {
 
   return (
     <div className="flex min-h-screen bg-gray-50">
-      {/* Sidebar Kiri */}
-      <aside className="w-64 bg-white border-r hidden md:block p-4">
-        <div className="flex items-center gap-3 mb-8 px-2">
-          <img 
-            src="data:image/png;base64,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" 
-            alt="Logo PU" 
-            className="w-8 h-8 object-contain"
-          />
-          <span className="text-xs font-bold text-[#1b2a4a] leading-tight">
-            ARSIP KEPEGAWAIAN<br/>BBWS VIII
-          </span>
+      {/* Sidebar Kiri dengan Tombol Logout */}
+      <aside className="w-64 bg-white border-r hidden md:flex flex-col justify-between p-4">
+        <div>
+          <div className="flex items-center gap-3 mb-8 px-2">
+            <img 
+              src="data:image/png;base64,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" 
+              alt="Logo PU" 
+              className="w-8 h-8 object-contain"
+            />
+            <span className="text-xs font-bold text-[#1b2a4a] leading-tight">
+              ARSIP KEPEGAWAIAN<br/>BBWS VIII
+            </span>
+          </div>
+          <nav className="space-y-1 text-sm">
+            <a href="/dashboard" className="block p-2.5 rounded hover:bg-gray-100 text-gray-700">Halaman Utama</a>
+            <a href="/dashboard/data-pribadi" className="block p-2.5 rounded hover:bg-gray-100 text-gray-700">Data Saya</a>
+            <a href="#" className="block p-2.5 rounded hover:bg-gray-100 text-gray-700">Riwayat Kepegawaian</a>
+            <a href="/dashboard/info-pekerja" className="block p-2.5 rounded bg-sky-900 text-white font-semibold">Info Kepegawaian</a>
+            {isAdmin && (
+              <a href="/dashboard/tambah-pegawai" className="block p-2.5 rounded hover:bg-gray-100 text-gray-700">Tambah Pegawai</a>
+            )}
+          </nav>
         </div>
-        <nav className="space-y-1 text-sm">
-          <a href="/dashboard" className="block p-2.5 rounded hover:bg-gray-100 text-gray-700">Halaman Utama</a>
-          <a href="/dashboard/data-pribadi" className="block p-2.5 rounded hover:bg-gray-100 text-gray-700">Data Saya</a>
-          <a href="#" className="block p-2.5 rounded hover:bg-gray-100 text-gray-700">Riwayat Kepegawaian</a>
-          <a href="/dashboard/info-pekerja" className="block p-2.5 rounded bg-sky-900 text-white font-semibold">Info Kepegawaian</a>
-          {isAdmin && (
-            <a href="/dashboard/tambah-pegawai" className="block p-2.5 rounded hover:bg-gray-100 text-gray-700">Tambah Pegawai</a>
-          )}
-        </nav>
+
+        {/* Tombol Logout */}
+        <div className="pt-4 border-t">
+          <button 
+            onClick={handleLogout}
+            className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold py-2.5 px-4 rounded-lg text-xs transition flex items-center justify-center gap-2"
+          >
+            🚪 Keluar (Logout)
+          </button>
+        </div>
       </aside>
 
       {/* Konten Utama */}
@@ -197,6 +217,12 @@ export default function InfoPegawaiPage() {
               <span className="bg-sky-500 text-white text-xs px-3 py-1 rounded-full font-mono">
                 {currentUser ? currentUser.nip : '-'}
               </span>
+              <button 
+                onClick={handleLogout}
+                className="bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold py-1.5 px-3 rounded-full text-xs transition ml-2 md:hidden"
+              >
+                Keluar
+              </button>
             </div>
           </div>
         </div>
@@ -256,7 +282,6 @@ export default function InfoPegawaiPage() {
                         </span>
                       </td>
 
-                      {/* KOLOM AKSI HANYA UNTUK ADMIN */}
                       {isAdmin && (
                         <td className="p-3 text-center">
                           <div className="flex items-center justify-center gap-2">
@@ -290,7 +315,7 @@ export default function InfoPegawaiPage() {
         </div>
       </main>
 
-      {/* MODAL / POPUP DETAIL KESELURUHAN PEGAWAI */}
+      {/* MODAL DETAIL PEGAWAI */}
       {isModalOpen && selectedEmployee && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 relative">
@@ -368,7 +393,7 @@ export default function InfoPegawaiPage() {
         </div>
       )}
 
-      {/* MODAL / POPUP FORM EDIT PEGAWAI (LENGKAP) */}
+      {/* MODAL FORM EDIT PEGAWAI */}
       {isEditModalOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
           <div className="bg-white rounded-2xl shadow-xl max-w-3xl w-full max-h-[90vh] overflow-y-auto p-6 relative">
@@ -384,8 +409,6 @@ export default function InfoPegawaiPage() {
             </h2>
 
             <form onSubmit={handleUpdateSubmit} className="space-y-6 text-sm">
-              
-              {/* Bagian 1: Data Pribadi & Kontak */}
               <div>
                 <h3 className="font-bold text-sky-800 uppercase text-xs tracking-wider mb-3 border-b pb-1">Data Pribadi & Kontak</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -497,7 +520,6 @@ export default function InfoPegawaiPage() {
                 </div>
               </div>
 
-              {/* Bagian 2: Pendidikan Formal */}
               <div>
                 <h3 className="font-bold text-sky-800 uppercase text-xs tracking-wider mb-3 border-b pb-1">Pendidikan Formal</h3>
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -531,7 +553,6 @@ export default function InfoPegawaiPage() {
                 </div>
               </div>
 
-              {/* Bagian 3: Data Keluarga */}
               <div>
                 <h3 className="font-bold text-sky-800 uppercase text-xs tracking-wider mb-3 border-b pb-1">Data Keluarga</h3>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -574,7 +595,6 @@ export default function InfoPegawaiPage() {
                 </div>
               </div>
 
-              {/* Tombol Aksi Form */}
               <div className="flex justify-end gap-3 pt-4 border-t">
                 <button 
                   type="button" 
