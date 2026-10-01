@@ -66,8 +66,8 @@ export default function DashboardPage() {
         { title: 'Gaji Berkala', slug: 'gaji', icon: '💰', customPath: '/dashboard/gaji' },
         { title: 'Angka Kredit', slug: 'angka-kredit', icon: '📊', customPath: '/dashboard/angka-kredit' },
         { title: 'Diklat / Sertifikasi', slug: 'diklat', icon: '📜', customPath: '/dashboard/diklat' },
-        { title: 'SKP', slug: 'skp', icon: '📈', customPath: '/dashboard/skp' },
         { title: 'Penghargaan', slug: 'penghargaan', icon: '🏆', customPath: '/dashboard/penghargaan' },
+        { title: 'SKP', slug: 'skp', icon: '📈', customPath: '/dashboard/skp' },
         { title: 'Hukuman Disiplin', slug: 'hukuman-disiplin', icon: '⚖️', customPath: '/dashboard/hukuman-disiplin' },
       ]
     }
