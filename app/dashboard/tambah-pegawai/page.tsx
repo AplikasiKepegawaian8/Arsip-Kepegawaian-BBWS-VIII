@@ -234,7 +234,7 @@ export default function TambahPegawaiPage() {
 
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
-                  <label className="block font-medium text-gray-700">Nama Lengkap & Gelar *</label>
+                  <label className="block font-medium text-gray-700">Nama Lengkap</label>
                   <input type="text" required value={formData.nama} onChange={(e) => setFormData({...formData, nama: e.target.value})} className="w-full border rounded p-2 mt-1" />
                 </div>
                 <div>
