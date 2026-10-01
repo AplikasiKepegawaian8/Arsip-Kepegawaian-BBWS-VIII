@@ -7,6 +7,7 @@ export default function RiwayatPangkatPage() {
   const router = useRouter()
   const [employee, setEmployee] = useState<any>(null)
   const [loading, setLoading] = useState(true)
+  const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState('riwayat')
   const [showModal, setShowModal] = useState(false)
   const [uploading, setUploading] = useState(false)
@@ -28,6 +29,11 @@ export default function RiwayatPangkatPage() {
   const [logList, setLogList] = useState<any[]>([])
 
   useEffect(() => {
+    const role = localStorage.getItem('role_aktif')
+    if (role === 'admin') {
+      setIsAdmin(true)
+    }
+
     const fetchData = async () => {
       const nipAktif = localStorage.getItem('nip_aktif')
       if (!nipAktif) {
@@ -76,9 +82,13 @@ export default function RiwayatPangkatPage() {
     fetchData()
   }, [router])
 
-  // Fungsi Tambah Data Pangkat & Upload File PDF ke Supabase Storage
+  // Fungsi Tambah Data Pangkat & Upload File PDF ke Supabase Storage (Hanya Admin)
   const handleTambahPangkat = async (e: React.FormEvent) => {
     e.preventDefault()
+    if (!isAdmin) {
+      alert('Akses ditolak! Hanya admin yang dapat menambah data.')
+      return
+    }
     if (!employee) return
 
     setUploading(true)
@@ -153,8 +163,13 @@ export default function RiwayatPangkatPage() {
     }
   }
 
-  // Fungsi Hapus Data Pangkat dari Supabase
+  // Fungsi Hapus Data Pangkat dari Supabase (Hanya Admin)
   const handleDelete = async (id: string) => {
+    if (!isAdmin) {
+      alert('Akses ditolak! Hanya admin yang dapat menghapus data.')
+      return
+    }
+
     if (confirm('Apakah Anda yakin ingin menghapus riwayat pangkat ini?')) {
       const { error } = await supabase
         .from('rank_history')
@@ -179,7 +194,7 @@ export default function RiwayatPangkatPage() {
         <aside className="w-64 bg-white border-r hidden md:block p-4">
           <div className="flex items-center gap-3 mb-8 px-2">
             <img 
-              src="data:image/png;base64,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" 
+              src="data:image/png;base64,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" 
               alt="Logo PU" 
               className="w-8 h-8 object-contain"
             />
@@ -208,7 +223,9 @@ export default function RiwayatPangkatPage() {
           <div className="flex items-center gap-3 bg-white p-2 rounded-full shadow-sm border">
             <span className="text-sm font-semibold text-gray-700 px-2">{employee?.nama || 'Pengguna'}</span>
             <span className="bg-sky-500 text-white text-xs px-3 py-1 rounded-full font-mono">{employee?.nip || '-'}</span>
-            <span className="bg-sky-100 text-sky-800 text-[10px] font-bold px-2 py-0.5 rounded">VERIFIKATOR1</span>
+            <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${isAdmin ? 'bg-purple-100 text-purple-800' : 'bg-sky-100 text-sky-800'}`}>
+              {isAdmin ? 'ADMIN' : 'USER'}
+            </span>
           </div>
         </div>
 
@@ -252,14 +269,16 @@ export default function RiwayatPangkatPage() {
         {/* TAB 1: RIWAYAT PANGKAT */}
         {activeTab === 'riwayat' && (
           <div>
-            <div className="mb-4">
-              <button 
-                onClick={() => setShowModal(true)}
-                className="bg-[#1b2a4a] hover:bg-sky-900 text-white text-xs font-bold px-5 py-3 rounded-lg shadow transition tracking-wider uppercase"
-              >
-                + TAMBAH DATA
-              </button>
-            </div>
+            {isAdmin && (
+              <div className="mb-4">
+                <button 
+                  onClick={() => setShowModal(true)}
+                  className="bg-[#1b2a4a] hover:bg-sky-900 text-white text-xs font-bold px-5 py-3 rounded-lg shadow transition tracking-wider uppercase"
+                >
+                  + TAMBAH DATA
+                </button>
+              </div>
+            )}
 
             <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
               <div className="overflow-x-auto">
@@ -276,14 +295,14 @@ export default function RiwayatPangkatPage() {
                       <th className="p-3 text-center">ARSIP</th>
                       <th className="p-3 text-center">ARSIP PERTEK</th>
                       <th className="p-3">TERAKHIR DIPERBARUI</th>
-                      <th className="p-3 text-center">AKSI</th>
+                      {isAdmin && <th className="p-3 text-center">AKSI</th>}
                     </tr>
                   </thead>
                   <tbody className="divide-y text-xs text-gray-700">
                     {pangkatList.length === 0 ? (
                       <tr>
-                        <td colSpan={11} className="p-8 text-center text-gray-400 italic">
-                          Belum ada data riwayat pangkat. Silakan klik tombol "+ TAMBAH DATA" untuk menambahkan.
+                        <td colSpan={isAdmin ? 11 : 10} className="p-8 text-center text-gray-400 italic">
+                          Belum ada data riwayat pangkat. {isAdmin ? 'Silakan klik tombol "+ TAMBAH DATA" untuk menambahkan.' : ''}
                         </td>
                       </tr>
                     ) : (
@@ -315,11 +334,13 @@ export default function RiwayatPangkatPage() {
                           <td className="p-3 font-mono text-[10px] text-gray-500 whitespace-pre-line">
                             {item.updated_by}<br/>{new Date(item.updated_at).toLocaleString()}
                           </td>
-                          <td className="p-3 text-center">
-                            <div className="flex items-center justify-center gap-2">
-                              <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
-                            </div>
-                          </td>
+                          {isAdmin && (
+                            <td className="p-3 text-center">
+                              <div className="flex items-center justify-center gap-2">
+                                <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
+                              </div>
+                            </td>
+                          )}
                         </tr>
                       ))
                     )}
@@ -352,9 +373,11 @@ export default function RiwayatPangkatPage() {
           <div className="bg-white rounded-xl shadow-sm border p-6">
             <div className="flex justify-between items-center mb-4">
               <h3 className="text-sm font-bold text-gray-800 uppercase tracking-wider">Data Integrasi SIASN BKN (Pangkat)</h3>
-              <button onClick={() => alert('Sinkronisasi SIASN Pangkat berhasil!')} className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3 py-1.5 rounded">
-                🔄 Sinkronisasi SIASN
-              </button>
+              {isAdmin && (
+                <button onClick={() => alert('Sinkronisasi SIASN Pangkat berhasil!')} className="bg-sky-600 hover:bg-sky-700 text-white text-xs font-semibold px-3 py-1.5 rounded">
+                  🔄 Sinkronisasi SIASN
+                </button>
+              )}
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-left border-collapse text-xs">
@@ -409,8 +432,8 @@ export default function RiwayatPangkatPage() {
           </div>
         )}
 
-        {/* Modal Tambah Pangkat */}
-        {showModal && (
+        {/* Modal Tambah Pangkat (Hanya Admin) */}
+        {isAdmin && showModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
               <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Tambah Riwayat Pangkat Baru</h3>
