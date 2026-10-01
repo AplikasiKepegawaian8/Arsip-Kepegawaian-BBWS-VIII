@@ -25,6 +25,7 @@ export default function RiwayatPangkatPage() {
   const [fileSk, setFileSk] = useState<File | null>(null)
 
   const [pangkatList, setPangkatList] = useState<any[]>([])
+  const [verifikasiList, setVerifikasiList] = useState<any[]>([])
   const [siasnData, setSiasnData] = useState<any[]>([])
   const [logList, setLogList] = useState<any[]>([])
 
@@ -56,23 +57,48 @@ export default function RiwayatPangkatPage() {
 
       setEmployee(empData)
 
-      // 2. Ambil riwayat pangkat dari tabel rank_history
-      const { data: rankData, error: rankError } = await supabase
+      // 2. Ambil riwayat pangkat dari tabel rank_history dengan relasi ke employees (jika ada)
+      const roleAktif = localStorage.getItem('role_aktif')
+      const isUserAdmin = roleAktif === 'admin'
+
+      let query = supabase
         .from('rank_history')
-        .select('*')
-        .eq('employee_id', empData.id)
+        .select('*, employees(nama, nip)')
         .order('mulai', { ascending: false })
+
+      if (!isUserAdmin) {
+        query = query.eq('employee_id', empData.id)
+      }
+
+      const { data: rankData, error: rankError } = await query
 
       if (rankError) {
         console.error('Gagal memuat riwayat pangkat:', rankError.message)
       } else {
-        setPangkatList(rankData || [])
-        setSiasnData(rankData || [])
-        setLogList(rankData.map(item => ({
+        const dataMentah = rankData || []
+        
+        // Tabel Utama: Menampilkan semua data sesuai role
+        const dataUtama = isUserAdmin ? dataMentah : dataMentah.filter(item => item.employee_id === empData.id)
+        
+        // Tab Proses Verifikasi: Hanya menampilkan yang statusnya 'Pending'
+        const verifikasi = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Pending')
+
+        if (isUserAdmin) {
+          setVerifikasiList(dataMentah.filter(item => item.status_verifikasi && item.status_verifikasi !== 'Diterima'))
+          setPangkatList(dataUtama)
+        } else {
+          setPangkatList(dataUtama)
+          setVerifikasiList(verifikasi)
+        }
+
+        const diterima = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Diterima')
+        setSiasnData(isUserAdmin ? diterima : diterima.filter(item => item.employee_id === empData.id))
+        
+        setLogList(diterima.map(item => ({
           id: item.id,
           aktivitas: `Penambahan Pangkat Golongan ${item.golongan}`,
           waktu: item.updated_at,
-          user: empData.nama
+          user: item.employees?.nama || empData.nama
         })))
       }
 
@@ -82,13 +108,9 @@ export default function RiwayatPangkatPage() {
     fetchData()
   }, [router])
 
-  // Fungsi Tambah Data Pangkat & Upload File PDF ke Supabase Storage (Hanya Admin)
+  // Fungsi Tambah Data Pangkat & Upload File PDF ke Supabase Storage
   const handleTambahPangkat = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!isAdmin) {
-      alert('Akses ditolak! Hanya admin yang dapat menambah data.')
-      return
-    }
     if (!employee) return
 
     setUploading(true)
@@ -127,6 +149,7 @@ export default function RiwayatPangkatPage() {
         masa_kerja_tahun: parseInt(formPangkat.masaTahun) || 0,
         masa_kerja_bulan: parseInt(formPangkat.masaBulan) || 0,
         arsip_sk_url: publicUrl,
+        status_verifikasi: isAdmin ? 'Diterima' : 'Pending',
         updated_by: employee.nama,
         updated_at: new Date().toISOString()
       }
@@ -134,23 +157,18 @@ export default function RiwayatPangkatPage() {
       const { data, error } = await supabase
         .from('rank_history')
         .insert([dataBaru])
-        .select()
+        .select('*, employees(nama, nip)')
 
       if (error) {
         alert('Gagal menyimpan data ke Supabase: ' + error.message)
       } else {
-        alert('Data pangkat dan berkas SK berhasil disimpan!')
+        alert(isAdmin ? 'Data pangkat berhasil ditambahkan!' : 'Usulan pangkat berhasil dikirim dan menunggu verifikasi admin.')
         if (data) {
-          setPangkatList([data[0], ...pangkatList])
-          setLogList([
-            {
-              id: data[0].id,
-              aktivitas: `Penambahan Pangkat Golongan ${data[0].golongan}`,
-              waktu: data[0].updated_at,
-              user: employee.nama
-            },
-            ...logList
-          ])
+          const itemBaru = data[0]
+          setPangkatList([itemBaru, ...pangkatList])
+          if (!isAdmin) {
+            setVerifikasiList([itemBaru, ...verifikasiList])
+          }
         }
         setFormPangkat({ golongan: '', pangkat: '', mulai: '', akhir: '', noSk: '', masaTahun: '', masaBulan: '' })
         setFileSk(null)
@@ -160,6 +178,22 @@ export default function RiwayatPangkatPage() {
       alert('Terjadi kesalahan: ' + err.message)
     } finally {
       setUploading(false)
+    }
+  }
+
+  // Fungsi Aksi Admin: Verifikasi (Terima / Tolak)
+  const handleVerifikasiStatus = async (id: string, status: 'Diterima' | 'Ditolak') => {
+    const { error } = await supabase
+      .from('rank_history')
+      .update({ status_verifikasi: status })
+      .eq('id', id)
+
+    if (error) {
+      alert('Gagal memperbarui status verifikasi: ' + error.message)
+    } else {
+      alert(`Pengajuan berhasil ${status.toLowerCase()}!`)
+      setPangkatList(pangkatList.map(item => item.id === id ? { ...item, status_verifikasi: status } : item))
+      setVerifikasiList(verifikasiList.map(item => item.id === id ? { ...item, status_verifikasi: status } : item))
     }
   }
 
@@ -180,6 +214,7 @@ export default function RiwayatPangkatPage() {
         alert('Gagal menghapus data: ' + error.message)
       } else {
         setPangkatList(pangkatList.filter((item) => item.id !== id))
+        setVerifikasiList(verifikasiList.filter((item) => item.id !== id))
         alert('Data berhasil dihapus.')
       }
     }
@@ -239,46 +274,44 @@ export default function RiwayatPangkatPage() {
         </div>
 
         {/* Tab Navigasi Sekunder */}
-        <div className="flex items-center gap-2 mb-6 border-b pb-4">
+        <div className="flex items-center gap-2 mb-6 border-b pb-4 overflow-x-auto">
           <button 
             onClick={() => setActiveTab('riwayat')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'riwayat' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${activeTab === 'riwayat' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
             Riwayat Pangkat
           </button>
           <button 
             onClick={() => setActiveTab('verifikasi')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 ${activeTab === 'verifikasi' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 whitespace-nowrap ${activeTab === 'verifikasi' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
-            Proses Verifikasi <span className="bg-[#1b2a4a] text-white text-xs px-2 py-0.5 rounded-full">0</span>
+            Proses Verifikasi <span className="bg-[#1b2a4a] text-white text-xs px-2 py-0.5 rounded-full">{isAdmin ? verifikasiList.filter(i => i.status_verifikasi === 'Pending').length : verifikasiList.length}</span>
           </button>
           <button 
             onClick={() => setActiveTab('siasn')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'siasn' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${activeTab === 'siasn' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
             Data SIASN
           </button>
           <button 
             onClick={() => setActiveTab('log')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'log' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${activeTab === 'log' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
             Log
           </button>
         </div>
 
-        {/* TAB 1: RIWAYAT PANGKAT */}
+        {/* TAB 1: RIWAYAT PANGKAT (DENGAN KOLOM STATUS DI SAMPING KANAN NO SK) */}
         {activeTab === 'riwayat' && (
           <div>
-            {isAdmin && (
-              <div className="mb-4">
-                <button 
-                  onClick={() => setShowModal(true)}
-                  className="bg-[#1b2a4a] hover:bg-sky-900 text-white text-xs font-bold px-5 py-3 rounded-lg shadow transition tracking-wider uppercase"
-                >
-                  + TAMBAH DATA
-                </button>
-              </div>
-            )}
+            <div className="mb-4">
+              <button 
+                onClick={() => setShowModal(true)}
+                className="bg-[#1b2a4a] hover:bg-sky-900 text-white text-xs font-bold px-5 py-3 rounded-lg shadow transition tracking-wider uppercase"
+              >
+                {isAdmin ? '+ TAMBAH DATA' : '+ AJUKAN USULAN PANGKAT'}
+              </button>
+            </div>
 
             <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
               <div className="overflow-x-auto">
@@ -286,11 +319,13 @@ export default function RiwayatPangkatPage() {
                   <thead>
                     <tr className="bg-gray-50 border-b text-[11px] font-bold text-gray-600 uppercase tracking-wider">
                       <th className="p-3 text-center">NO</th>
+                      {isAdmin && <th className="p-3">PEGAWAI</th>}
                       <th className="p-3">GOLONGAN</th>
                       <th className="p-3">PANGKAT</th>
                       <th className="p-3">MULAI</th>
                       <th className="p-3">AKHIR</th>
                       <th className="p-3">NO SK</th>
+                      <th className="p-3 text-center">STATUS</th>
                       <th className="p-3">MASA KERJA</th>
                       <th className="p-3 text-center">ARSIP</th>
                       <th className="p-3 text-center">ARSIP PERTEK</th>
@@ -301,38 +336,46 @@ export default function RiwayatPangkatPage() {
                   <tbody className="divide-y text-xs text-gray-700">
                     {pangkatList.length === 0 ? (
                       <tr>
-                        <td colSpan={isAdmin ? 11 : 10} className="p-8 text-center text-gray-400 italic">
-                          Belum ada data riwayat pangkat. {isAdmin ? 'Silakan klik tombol "+ TAMBAH DATA" untuk menambahkan.' : ''}
+                        <td colSpan={isAdmin ? 13 : 11} className="p-8 text-center text-gray-400 italic">
+                          Belum ada data riwayat pangkat.
                         </td>
                       </tr>
                     ) : (
                       pangkatList.map((item, index) => (
                         <tr key={item.id} className="hover:bg-gray-50 transition">
                           <td className="p-3 text-center font-semibold">{index + 1}</td>
+                          {isAdmin && (
+                            <td className="p-3 font-semibold text-sky-800">
+                              {item.employees?.nama || '-'}
+                              <div className="text-[10px] text-gray-500 font-mono">{item.employees?.nip}</div>
+                            </td>
+                          )}
                           <td className="p-3 font-semibold">{item.golongan}</td>
                           <td className="p-3">{item.pangkat}</td>
                           <td className="p-3">{item.mulai}</td>
                           <td className="p-3">{item.akhir || '-'}</td>
                           <td className="p-3 font-mono text-[11px]">{item.no_sk}</td>
+                          {/* KOLOM STATUS DI SAMPING KANAN NO SK */}
+                          <td className="p-3 text-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                              item.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
+                              item.status_verifikasi === 'Ditolak' ? 'bg-red-100 text-red-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {item.status_verifikasi || 'Diterima'}
+                            </span>
+                          </td>
                           <td className="p-3">Tahun: {item.masa_kerja_tahun}<br/>Bulan: {item.masa_kerja_bulan}</td>
                           <td className="p-3 text-center">
                             {item.arsip_sk_url ? (
-                              <a 
-                                href={item.arsip_sk_url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="inline-block text-sky-600 hover:text-sky-800 font-medium underline"
-                                title="Lihat Berkas PDF"
-                              >
-                                📄 Buka PDF
-                              </a>
+                              <a href={item.arsip_sk_url} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline" title="Lihat Berkas PDF">📄 Buka PDF</a>
                             ) : (
                               <span className="text-gray-400 italic text-[10px]">Tidak ada file</span>
                             )}
                           </td>
                           <td className="p-3 text-center">-</td>
                           <td className="p-3 font-mono text-[10px] text-gray-500 whitespace-pre-line">
-                            {item.updated_by}<br/>{new Date(item.updated_at).toLocaleString()}
+                            {item.employees?.nama || item.updated_by || employee?.nama}<br/>{new Date(item.updated_at).toLocaleString()}
                           </td>
                           {isAdmin && (
                             <td className="p-3 text-center">
@@ -350,11 +393,6 @@ export default function RiwayatPangkatPage() {
 
               <div className="flex justify-between items-center p-4 bg-white border-t">
                 <span className="text-xs text-gray-500">Menampilkan {pangkatList.length} data</span>
-                <div className="flex gap-1">
-                  <button className="px-3 py-1 border rounded text-xs text-gray-500 hover:bg-gray-100">⟨</button>
-                  <button className="px-3 py-1 bg-[#1b2a4a] text-white rounded text-xs font-bold">1</button>
-                  <button className="px-3 py-1 border rounded text-xs text-gray-500 hover:bg-gray-100">⟩</button>
-                </div>
               </div>
             </div>
           </div>
@@ -363,8 +401,88 @@ export default function RiwayatPangkatPage() {
         {/* TAB 2: PROSES VERIFIKASI */}
         {activeTab === 'verifikasi' && (
           <div className="bg-white rounded-xl shadow-sm border p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-4 uppercase tracking-wider">Antrean Proses Verifikasi Pangkat</h3>
-            <p className="text-xs text-gray-400 italic py-6 text-center">Tidak ada pengajuan pangkat yang sedang dalam proses verifikasi.</p>
+            <h3 className="text-sm font-bold text-gray-800 mb-4 uppercase tracking-wider">
+              {isAdmin ? 'Antrean Proses Verifikasi Usulan Pangkat (Semua Pegawai)' : 'Status Pengajuan Usulan Pangkat Saya'}
+            </h3>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-gray-50 border-b text-gray-600 uppercase">
+                    <th className="p-3 text-center">No</th>
+                    {isAdmin && <th className="p-3">Nama Pegawai</th>}
+                    <th className="p-3">Golongan</th>
+                    <th className="p-3">Pangkat</th>
+                    <th className="p-3">No SK</th>
+                    <th className="p-3 text-center">Status</th>
+                    <th className="p-3 text-center">Berkas</th>
+                    {isAdmin && <th className="p-3 text-center">Aksi Verifikasi</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {verifikasiList.length === 0 ? (
+                    <tr>
+                      <td colSpan={isAdmin ? 8 : 6} className="p-6 text-center text-gray-400 italic">
+                        Tidak ada pengajuan pangkat yang sedang dalam proses verifikasi.
+                      </td>
+                    </tr>
+                  ) : (
+                    verifikasiList.map((item, idx) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        <td className="p-3 text-center font-semibold">{idx + 1}</td>
+                        {isAdmin && (
+                          <td className="p-3 font-semibold text-sky-800">
+                            {item.employees?.nama || '-'}
+                            <div className="text-[10px] text-gray-500 font-mono">{item.employees?.nip}</div>
+                          </td>
+                        )}
+                        <td className="p-3 font-semibold">{item.golongan}</td>
+                        <td className="p-3">{item.pangkat}</td>
+                        <td className="p-3 font-mono">{item.no_sk}</td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            item.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
+                            item.status_verifikasi === 'Ditolak' ? 'bg-red-100 text-red-800' :
+                            'bg-amber-100 text-amber-800'
+                          }`}>
+                            {item.status_verifikasi || 'Pending'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          {item.arsip_sk_url ? (
+                            <a href={item.arsip_sk_url} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline">📄 Lihat PDF</a>
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+                        {isAdmin && (
+                          <td className="p-3 text-center">
+                            {item.status_verifikasi === 'Pending' ? (
+                              <div className="flex items-center justify-center gap-2">
+                                <button 
+                                  onClick={() => handleVerifikasiStatus(item.id, 'Diterima')}
+                                  className="px-2.5 py-1 bg-emerald-600 text-white rounded text-[11px] font-semibold hover:bg-emerald-700"
+                                >
+                                  Terima
+                                </button>
+                                <button 
+                                  onClick={() => handleVerifikasiStatus(item.id, 'Ditolak')}
+                                  className="px-2.5 py-1 bg-red-600 text-white rounded text-[11px] font-semibold hover:bg-red-700"
+                                >
+                                  Tolak
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 italic">Selesai</span>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -387,12 +505,13 @@ export default function RiwayatPangkatPage() {
                     <th className="p-3">Pangkat</th>
                     <th className="p-3">TMT Mulai</th>
                     <th className="p-3">No SK</th>
+                    <th className="p-3 text-center">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {siasnData.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="p-6 text-center text-gray-400 italic">Belum ada data dari server SIASN.</td>
+                      <td colSpan={5} className="p-6 text-center text-gray-400 italic">Belum ada data dari server SIASN.</td>
                     </tr>
                   ) : (
                     siasnData.map((s, idx) => (
@@ -401,6 +520,15 @@ export default function RiwayatPangkatPage() {
                         <td className="p-3">{s.pangkat}</td>
                         <td className="p-3">{s.mulai}</td>
                         <td className="p-3 font-mono">{s.no_sk}</td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            s.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
+                            s.status_verifikasi === 'Ditolak' ? 'bg-red-100 text-red-800' :
+                            'bg-amber-100 text-amber-800'
+                          }`}>
+                            {s.status_verifikasi || 'Diterima'}
+                          </span>
+                        </td>
                       </tr>
                     ))
                   )}
@@ -432,11 +560,13 @@ export default function RiwayatPangkatPage() {
           </div>
         )}
 
-        {/* Modal Tambah Pangkat (Hanya Admin) */}
-        {isAdmin && showModal && (
+        {/* Modal Tambah / Ajukan Pangkat */}
+        {showModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
-              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Tambah Riwayat Pangkat Baru</h3>
+              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">
+                {isAdmin ? 'Tambah Riwayat Pangkat Baru' : 'Ajukan Usulan Riwayat Pangkat'}
+              </h3>
               <form onSubmit={handleTambahPangkat} className="space-y-3 text-xs">
                 <div>
                   <label className="block font-medium text-gray-700 mb-1">Golongan</label>
@@ -540,7 +670,7 @@ export default function RiwayatPangkatPage() {
                     disabled={uploading}
                     className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
                   >
-                    {uploading ? 'Mengupload...' : 'Simpan Pangkat'}
+                    {uploading ? 'Mengupload...' : (isAdmin ? 'Simpan Pangkat' : 'Kirim Usulan')}
                   </button>
                 </div>
               </form>

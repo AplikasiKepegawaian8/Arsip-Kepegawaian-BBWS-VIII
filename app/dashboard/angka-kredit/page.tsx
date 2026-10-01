@@ -23,6 +23,7 @@ export default function RiwayatAngkaKreditPage() {
   const [fileSk, setFileSk] = useState<File | null>(null)
 
   const [akList, setAkList] = useState<any[]>([])
+  const [verifikasiList, setVerifikasiList] = useState<any[]>([])
   const [siasnData, setSiasnData] = useState<any[]>([])
   const [logList, setLogList] = useState<any[]>([])
 
@@ -54,23 +55,48 @@ export default function RiwayatAngkaKreditPage() {
 
       setEmployee(empData)
 
-      // 2. Ambil data riwayat angka kredit dari tabel credit_score_history
-      const { data: akData, error: akError } = await supabase
+      // 2. Ambil data riwayat angka kredit dengan relasi ke tabel employees
+      const roleAktif = localStorage.getItem('role_aktif')
+      const isUserAdmin = roleAktif === 'admin'
+
+      let query = supabase
         .from('credit_score_history')
-        .select('*')
-        .eq('employee_id', empData.id)
+        .select('*, employees(nama, nip)')
         .order('tgl_pak', { ascending: false })
+
+      if (!isUserAdmin) {
+        query = query.eq('employee_id', empData.id)
+      }
+
+      const { data: akData, error: akError } = await query
 
       if (akError) {
         console.error('Gagal memuat riwayat angka kredit:', akError.message)
       } else {
-        setAkList(akData || [])
-        setSiasnData(akData || [])
-        setLogList((akData || []).map(item => ({
+        const dataMentah = akData || []
+        
+        // Tabel Utama: Menampilkan semua data sesuai role
+        const dataUtama = isUserAdmin ? dataMentah : dataMentah.filter(item => item.employee_id === empData.id)
+        
+        // Tab Proses Verifikasi: Hanya menampilkan yang statusnya 'Pending'
+        const verifikasi = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Pending')
+
+        if (isUserAdmin) {
+          setVerifikasiList(dataMentah.filter(item => item.status_verifikasi && item.status_verifikasi !== 'Diterima'))
+          setAkList(dataUtama)
+        } else {
+          setAkList(dataUtama)
+          setVerifikasiList(verifikasi)
+        }
+
+        const diterima = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Diterima')
+        setSiasnData(isUserAdmin ? diterima : diterima.filter(item => item.employee_id === empData.id))
+
+        setLogList(diterima.map(item => ({
           id: item.id,
           aktivitas: `Penambahan Angka Kredit (${item.jumlah_ak} AK)`,
           waktu: item.updated_at,
-          user: empData.nama
+          user: item.employees?.nama || empData.nama
         })))
       }
 
@@ -80,13 +106,9 @@ export default function RiwayatAngkaKreditPage() {
     fetchData()
   }, [router])
 
-  // Fungsi Tambah Data Angka Kredit & Upload PDF ke Supabase Storage (Hanya Admin)
+  // Fungsi Tambah/Ajukan Data Angka Kredit & Upload PDF ke Supabase Storage
   const handleTambahAk = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!isAdmin) {
-      alert('Akses ditolak! Hanya admin yang dapat menambah data.')
-      return
-    }
     if (!employee) return
 
     setUploading(true)
@@ -123,29 +145,25 @@ export default function RiwayatAngkaKreditPage() {
         jumlah_ak: parseFloat(formAk.jumlahAk) || 0,
         tmt_ak: formAk.tmtAk,
         arsip_sk_url: publicUrl,
+        status_verifikasi: isAdmin ? 'Diterima' : 'Pending',
         updated_at: new Date().toISOString()
       }
 
       const { data, error } = await supabase
         .from('credit_score_history')
         .insert([dataBaru])
-        .select()
+        .select('*, employees(nama, nip)')
 
       if (error) {
         alert('Gagal menyimpan data angka kredit: ' + error.message)
       } else {
-        alert('Data angka kredit berhasil disimpan!')
+        alert(isAdmin ? 'Data angka kredit berhasil ditambahkan!' : 'Usulan angka kredit berhasil dikirim dan menunggu verifikasi admin.')
         if (data) {
-          setAkList([data[0], ...akList])
-          setLogList([
-            {
-              id: data[0].id,
-              aktivitas: `Penambahan Angka Kredit (${data[0].jumlah_ak} AK)`,
-              waktu: data[0].updated_at,
-              user: employee.nama
-            },
-            ...logList
-          ])
+          const itemBaru = data[0]
+          setAkList([itemBaru, ...akList])
+          if (!isAdmin) {
+            setVerifikasiList([itemBaru, ...verifikasiList])
+          }
         }
         setFormAk({ jabatan: '', noPak: '', tglPak: '', jumlahAk: '', tmtAk: '' })
         setFileSk(null)
@@ -155,6 +173,22 @@ export default function RiwayatAngkaKreditPage() {
       alert('Terjadi kesalahan: ' + err.message)
     } finally {
       setUploading(false)
+    }
+  }
+
+  // Fungsi Aksi Admin: Verifikasi (Terima / Tolak)
+  const handleVerifikasiStatus = async (id: string, status: 'Diterima' | 'Ditolak') => {
+    const { error } = await supabase
+      .from('credit_score_history')
+      .update({ status_verifikasi: status })
+      .eq('id', id)
+
+    if (error) {
+      alert('Gagal memperbarui status verifikasi: ' + error.message)
+    } else {
+      alert(`Pengajuan berhasil ${status.toLowerCase()}!`)
+      setAkList(akList.map(item => item.id === id ? { ...item, status_verifikasi: status } : item))
+      setVerifikasiList(verifikasiList.map(item => item.id === id ? { ...item, status_verifikasi: status } : item))
     }
   }
 
@@ -175,6 +209,7 @@ export default function RiwayatAngkaKreditPage() {
         alert('Gagal menghapus data: ' + error.message)
       } else {
         setAkList(akList.filter((item) => item.id !== id))
+        setVerifikasiList(verifikasiList.filter((item) => item.id !== id))
         alert('Data berhasil dihapus.')
       }
     }
@@ -234,46 +269,44 @@ export default function RiwayatAngkaKreditPage() {
         </div>
 
         {/* Tab Navigasi Sekunder */}
-        <div className="flex items-center gap-2 mb-6 border-b pb-4">
+        <div className="flex items-center gap-2 mb-6 border-b pb-4 overflow-x-auto">
           <button 
             onClick={() => setActiveTab('riwayat')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'riwayat' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${activeTab === 'riwayat' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
             Riwayat Angka Kredit
           </button>
           <button 
             onClick={() => setActiveTab('verifikasi')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 ${activeTab === 'verifikasi' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 whitespace-nowrap ${activeTab === 'verifikasi' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
-            Proses Verifikasi <span className="bg-[#1b2a4a] text-white text-xs px-2 py-0.5 rounded-full">0</span>
+            Proses Verifikasi <span className="bg-[#1b2a4a] text-white text-xs px-2 py-0.5 rounded-full">{isAdmin ? verifikasiList.filter(i => i.status_verifikasi === 'Pending').length : verifikasiList.length}</span>
           </button>
           <button 
             onClick={() => setActiveTab('siasn')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'siasn' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${activeTab === 'siasn' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
             Data SIASN
           </button>
           <button 
             onClick={() => setActiveTab('log')}
-            className={`px-4 py-2 rounded-lg text-sm font-medium transition ${activeTab === 'log' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+            className={`px-4 py-2 rounded-lg text-sm font-medium transition whitespace-nowrap ${activeTab === 'log' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
             Log
           </button>
         </div>
 
-        {/* TAB 1: RIWAYAT ANGKA KREDIT */}
+        {/* TAB 1: RIWAYAT ANGKA KREDIT (DENGAN KOLOM STATUS DI SAMPING KANAN NO PAK) */}
         {activeTab === 'riwayat' && (
           <div>
-            {isAdmin && (
-              <div className="mb-4">
-                <button 
-                  onClick={() => setShowModal(true)}
-                  className="bg-[#1b2a4a] hover:bg-sky-900 text-white text-xs font-bold px-5 py-3 rounded-lg shadow transition tracking-wider uppercase"
-                >
-                  + TAMBAH DATA
-                </button>
-              </div>
-            )}
+            <div className="mb-4">
+              <button 
+                onClick={() => setShowModal(true)}
+                className="bg-[#1b2a4a] hover:bg-sky-900 text-white text-xs font-bold px-5 py-3 rounded-lg shadow transition tracking-wider uppercase"
+              >
+                {isAdmin ? '+ TAMBAH DATA' : '+ AJUKAN USULAN ANGKA KREDIT'}
+              </button>
+            </div>
 
             <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
               <div className="overflow-x-auto">
@@ -281,8 +314,10 @@ export default function RiwayatAngkaKreditPage() {
                   <thead>
                     <tr className="bg-gray-50 border-b text-[11px] font-bold text-gray-600 uppercase tracking-wider">
                       <th className="p-3 text-center">NO</th>
+                      {isAdmin && <th className="p-3">PEGAWAI</th>}
                       <th className="p-3">JABATAN</th>
                       <th className="p-3">NO PAK</th>
+                      <th className="p-3 text-center">STATUS</th>
                       <th className="p-3">TGL PAK</th>
                       <th className="p-3">JUMLAH AK</th>
                       <th className="p-3">TMT AK</th>
@@ -294,16 +329,32 @@ export default function RiwayatAngkaKreditPage() {
                   <tbody className="divide-y text-xs text-gray-700">
                     {akList.length === 0 ? (
                       <tr>
-                        <td colSpan={isAdmin ? 9 : 8} className="p-8 text-center text-gray-400 italic">
-                          Belum ada data riwayat angka kredit. {isAdmin ? 'Silakan klik tombol "+ TAMBAH DATA" untuk menambahkan.' : ''}
+                        <td colSpan={isAdmin ? 11 : 10} className="p-8 text-center text-gray-400 italic">
+                          Belum ada data riwayat angka kredit.
                         </td>
                       </tr>
                     ) : (
                       akList.map((item, index) => (
                         <tr key={item.id} className="hover:bg-gray-50 transition">
                           <td className="p-3 text-center font-semibold">{index + 1}</td>
+                          {isAdmin && (
+                            <td className="p-3 font-semibold text-sky-800">
+                              {item.employees?.nama || '-'}
+                              <div className="text-[10px] text-gray-500 font-mono">{item.employees?.nip}</div>
+                            </td>
+                          )}
                           <td className="p-3 font-semibold text-sky-700">{item.jabatan}</td>
                           <td className="p-3 font-mono text-[11px]">{item.no_pak}</td>
+                          {/* KOLOM STATUS DI SAMPING KANAN NO PAK */}
+                          <td className="p-3 text-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                              item.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
+                              item.status_verifikasi === 'Ditolak' ? 'bg-red-100 text-red-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {item.status_verifikasi || 'Diterima'}
+                            </span>
+                          </td>
                           <td className="p-3">{item.tgl_pak}</td>
                           <td className="p-3 font-bold text-emerald-600">{item.jumlah_ak}</td>
                           <td className="p-3">{item.tmt_ak}</td>
@@ -323,7 +374,7 @@ export default function RiwayatAngkaKreditPage() {
                             )}
                           </td>
                           <td className="p-3 font-mono text-[10px] text-gray-500 whitespace-pre-line">
-                            {employee?.nama}<br/>{new Date(item.updated_at).toLocaleString()}
+                            {item.employees?.nama || employee?.nama}<br/>{new Date(item.updated_at).toLocaleString()}
                           </td>
                           {isAdmin && (
                             <td className="p-3 text-center">
@@ -341,11 +392,6 @@ export default function RiwayatAngkaKreditPage() {
 
               <div className="flex justify-between items-center p-4 bg-white border-t">
                 <span className="text-xs text-gray-500">Menampilkan {akList.length} data</span>
-                <div className="flex gap-1">
-                  <button className="px-3 py-1 border rounded text-xs text-gray-500 hover:bg-gray-100">⟨</button>
-                  <button className="px-3 py-1 bg-[#1b2a4a] text-white rounded text-xs font-bold">1</button>
-                  <button className="px-3 py-1 border rounded text-xs text-gray-500 hover:bg-gray-100">⟩</button>
-                </div>
               </div>
             </div>
           </div>
@@ -354,8 +400,88 @@ export default function RiwayatAngkaKreditPage() {
         {/* TAB 2: PROSES VERIFIKASI */}
         {activeTab === 'verifikasi' && (
           <div className="bg-white rounded-xl shadow-sm border p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-4 uppercase tracking-wider">Antrean Proses Verifikasi Angka Kredit</h3>
-            <p className="text-xs text-gray-400 italic py-6 text-center">Tidak ada pengajuan angka kredit yang sedang dalam proses verifikasi.</p>
+            <h3 className="text-sm font-bold text-gray-800 mb-4 uppercase tracking-wider">
+              {isAdmin ? 'Antrean Proses Verifikasi Usulan Angka Kredit (Semua Pegawai)' : 'Status Pengajuan Usulan Angka Kredit Saya'}
+            </h3>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-gray-50 border-b text-gray-600 uppercase">
+                    <th className="p-3 text-center">No</th>
+                    {isAdmin && <th className="p-3">Nama Pegawai</th>}
+                    <th className="p-3">Jabatan</th>
+                    <th className="p-3">No PAK</th>
+                    <th className="p-3">Jumlah AK</th>
+                    <th className="p-3 text-center">Status</th>
+                    <th className="p-3 text-center">Berkas</th>
+                    {isAdmin && <th className="p-3 text-center">Aksi Verifikasi</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {verifikasiList.length === 0 ? (
+                    <tr>
+                      <td colSpan={isAdmin ? 8 : 6} className="p-6 text-center text-gray-400 italic">
+                        Tidak ada pengajuan angka kredit yang sedang dalam proses verifikasi.
+                      </td>
+                    </tr>
+                  ) : (
+                    verifikasiList.map((item, idx) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        <td className="p-3 text-center font-semibold">{idx + 1}</td>
+                        {isAdmin && (
+                          <td className="p-3 font-semibold text-sky-800">
+                            {item.employees?.nama || '-'}
+                            <div className="text-[10px] text-gray-500 font-mono">{item.employees?.nip}</div>
+                          </td>
+                        )}
+                        <td className="p-3 font-semibold text-sky-700">{item.jabatan}</td>
+                        <td className="p-3 font-mono">{item.no_pak}</td>
+                        <td className="p-3 font-bold text-emerald-600">{item.jumlah_ak}</td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            item.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
+                            item.status_verifikasi === 'Ditolak' ? 'bg-red-100 text-red-800' :
+                            'bg-amber-100 text-amber-800'
+                          }`}>
+                            {item.status_verifikasi || 'Pending'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          {item.arsip_sk_url ? (
+                            <a href={item.arsip_sk_url} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline">📄 Lihat PDF</a>
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+                        {isAdmin && (
+                          <td className="p-3 text-center">
+                            {item.status_verifikasi === 'Pending' ? (
+                              <div className="flex items-center justify-center gap-2">
+                                <button 
+                                  onClick={() => handleVerifikasiStatus(item.id, 'Diterima')}
+                                  className="px-2.5 py-1 bg-emerald-600 text-white rounded text-[11px] font-semibold hover:bg-emerald-700"
+                                >
+                                  Terima
+                                </button>
+                                <button 
+                                  onClick={() => handleVerifikasiStatus(item.id, 'Ditolak')}
+                                  className="px-2.5 py-1 bg-red-600 text-white rounded text-[11px] font-semibold hover:bg-red-700"
+                                >
+                                  Tolak
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 italic">Selesai</span>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -376,6 +502,7 @@ export default function RiwayatAngkaKreditPage() {
                   <tr className="bg-gray-50 border-b text-gray-600 uppercase">
                     <th className="p-3">Jabatan (SIASN)</th>
                     <th className="p-3">No PAK</th>
+                    <th className="p-3 text-center">Status</th>
                     <th className="p-3">Jumlah AK</th>
                     <th className="p-3">TMT AK</th>
                   </tr>
@@ -383,13 +510,22 @@ export default function RiwayatAngkaKreditPage() {
                 <tbody>
                   {siasnData.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="p-6 text-center text-gray-400 italic">Belum ada data dari server SIASN.</td>
+                      <td colSpan={5} className="p-6 text-center text-gray-400 italic">Belum ada data dari server SIASN.</td>
                     </tr>
                   ) : (
                     siasnData.map((s, idx) => (
                       <tr key={idx} className="border-b">
                         <td className="p-3 font-semibold">{s.jabatan}</td>
                         <td className="p-3 font-mono">{s.no_pak}</td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            s.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
+                            s.status_verifikasi === 'Ditolak' ? 'bg-red-100 text-red-800' :
+                            'bg-amber-100 text-amber-800'
+                          }`}>
+                            {s.status_verifikasi || 'Diterima'}
+                          </span>
+                        </td>
                         <td className="p-3 text-emerald-600 font-bold">{s.jumlah_ak}</td>
                         <td className="p-3">{s.tmt_ak}</td>
                       </tr>
@@ -423,11 +559,13 @@ export default function RiwayatAngkaKreditPage() {
           </div>
         )}
 
-        {/* Modal Tambah Angka Kredit (Hanya Admin) */}
-        {isAdmin && showModal && (
+        {/* Modal Tambah / Ajukan Angka Kredit */}
+        {showModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
-              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Tambah Riwayat Angka Kredit Baru</h3>
+              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">
+                {isAdmin ? 'Tambah Riwayat Angka Kredit Baru' : 'Ajukan Usulan Riwayat Angka Kredit'}
+              </h3>
               <form onSubmit={handleTambahAk} className="space-y-3 text-xs">
                 <div>
                   <label className="block font-medium text-gray-700 mb-1">Jabatan</label>
@@ -509,7 +647,7 @@ export default function RiwayatAngkaKreditPage() {
                     disabled={uploading}
                     className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
                   >
-                    {uploading ? 'Mengupload...' : 'Simpan Angka Kredit'}
+                    {uploading ? 'Mengupload...' : (isAdmin ? 'Simpan Angka Kredit' : 'Kirim Usulan')}
                   </button>
                 </div>
               </form>

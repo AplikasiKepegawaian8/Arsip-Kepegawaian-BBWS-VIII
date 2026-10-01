@@ -12,7 +12,7 @@ export default function RiwayatDiklatPage() {
   const [showModal, setShowModal] = useState(false)
   const [uploading, setUploading] = useState(false)
 
-  // State form tambah Diklat / Sertifikasi sesuai kolom Supabase
+  // State form tambah/ajukan Diklat / Sertifikasi
   const [formDiklat, setFormDiklat] = useState({
     jenisKegiatan: 'Diklat',
     namaSertifikatDiklat: '',
@@ -22,6 +22,7 @@ export default function RiwayatDiklatPage() {
   const [fileSertifikat, setFileSertifikat] = useState<File | null>(null)
 
   const [diklatList, setDiklatList] = useState<any[]>([])
+  const [verifikasiList, setVerifikasiList] = useState<any[]>([])
   const [siasnKursusData, setSiasnKursusData] = useState<any[]>([])
   const [siasnPimpinanData, setSiasnPimpinanData] = useState<any[]>([])
   const [logList, setLogList] = useState<any[]>([])
@@ -54,26 +55,51 @@ export default function RiwayatDiklatPage() {
 
       setEmployee(empData)
 
-      // 2. Ambil data riwayat diklat dari tabel credit_and_training
-      const { data: diklatData, error: diklatError } = await supabase
+      // 2. Ambil data riwayat diklat dengan relasi ke tabel employees
+      const roleAktif = localStorage.getItem('role_aktif')
+      const isUserAdmin = roleAktif === 'admin'
+
+      let query = supabase
         .from('credit_and_training')
-        .select('*')
-        .eq('employee_id', empData.id)
+        .select('*, employees(nama, nip)')
         .order('tahun_kegiatan', { ascending: false })
+
+      if (!isUserAdmin) {
+        query = query.eq('employee_id', empData.id)
+      }
+
+      const { data: diklatData, error: diklatError } = await query
 
       if (diklatError) {
         console.error('Gagal memuat riwayat diklat:', diklatError.message)
       } else {
-        setDiklatList(diklatData || [])
-        // Filter contoh untuk data SIASN Kursus dan Diklat Pimpinan berdasarkan jenis_kegiatan
-        setSiasnKursusData((diklatData || []).filter(item => item.jenis_kegiatan === 'Kursus' || item.jenis_kegiatan === 'Diklat'))
-        setSiasnPimpinanData((diklatData || []).filter(item => item.jenis_kegiatan === 'Diklat Pimpinan'))
+        const dataMentah = diklatData || []
         
-        setLogList((diklatData || []).map(item => ({
+        // Tabel Utama: Menampilkan semua data sesuai role
+        const dataUtama = isUserAdmin ? dataMentah : dataMentah.filter(item => item.employee_id === empData.id)
+        
+        // Tab Proses Verifikasi: Hanya menampilkan yang statusnya 'Pending'
+        const verifikasi = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Pending')
+
+        if (isUserAdmin) {
+          setVerifikasiList(dataMentah.filter(item => item.status_verifikasi && item.status_verifikasi !== 'Diterima'))
+          setDiklatList(dataUtama)
+        } else {
+          setDiklatList(dataUtama)
+          setVerifikasiList(verifikasi)
+        }
+
+        const diterima = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Diterima')
+        const filteredDiterima = isUserAdmin ? diterima : diterima.filter(item => item.employee_id === empData.id)
+
+        setSiasnKursusData(filteredDiterima.filter(item => item.jenis_kegiatan === 'Kursus' || item.jenis_kegiatan === 'Diklat' || item.jenis_kegiatan === 'Sertifikasi' || item.jenis_kegiatan === 'Webinar / Workshop'))
+        setSiasnPimpinanData(filteredDiterima.filter(item => item.jenis_kegiatan === 'Diklat Pimpinan'))
+
+        setLogList(diterima.map(item => ({
           id: item.id,
           aktivitas: `Penambahan ${item.jenis_kegiatan}: ${item.nama_sertifikat_diklat}`,
           waktu: item.updated_at,
-          user: empData.nama
+          user: item.employees?.nama || empData.nama
         })))
       }
 
@@ -83,13 +109,9 @@ export default function RiwayatDiklatPage() {
     fetchData()
   }, [router])
 
-  // Fungsi Tambah Data Diklat & Upload PDF ke Supabase Storage (Hanya Admin)
+  // Fungsi Tambah/Ajukan Data Diklat & Upload PDF ke Supabase Storage
   const handleTambahDiklat = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!isAdmin) {
-      alert('Akses ditolak! Hanya admin yang dapat menambah data.')
-      return
-    }
     if (!employee) return
 
     setUploading(true)
@@ -125,33 +147,25 @@ export default function RiwayatDiklatPage() {
         jumlah_angka_kredit: parseFloat(formDiklat.jumlahAngkaKredit) || 0,
         tahun_kegiatan: parseInt(formDiklat.tahunKegiatan) || new Date().getFullYear(),
         sertifikat_url: publicUrl,
+        status_verifikasi: isAdmin ? 'Diterima' : 'Pending',
         updated_at: new Date().toISOString()
       }
 
       const { data, error } = await supabase
         .from('credit_and_training')
         .insert([dataBaru])
-        .select()
+        .select('*, employees(nama, nip)')
 
       if (error) {
         alert('Gagal menyimpan data diklat ke Supabase: ' + error.message)
       } else {
-        alert('Data diklat / sertifikasi berhasil disimpan!')
+        alert(isAdmin ? 'Data diklat / sertifikasi berhasil ditambahkan!' : 'Usulan diklat berhasil dikirim dan menunggu verifikasi admin.')
         if (data) {
-          setDiklatList([data[0], ...diklatList])
-          setSiasnKursusData([data[0], ...siasnKursusData])
-          if (data[0].jenis_kegiatan === 'Diklat Pimpinan') {
-            setSiasnPimpinanData([data[0], ...siasnPimpinanData])
+          const itemBaru = data[0]
+          setDiklatList([itemBaru, ...diklatList])
+          if (!isAdmin) {
+            setVerifikasiList([itemBaru, ...verifikasiList])
           }
-          setLogList([
-            {
-              id: data[0].id,
-              aktivitas: `Penambahan ${data[0].jenis_kegiatan}: ${data[0].nama_sertifikat_diklat}`,
-              waktu: data[0].updated_at,
-              user: employee.nama
-            },
-            ...logList
-          ])
         }
         setFormDiklat({
           jenisKegiatan: 'Diklat',
@@ -166,6 +180,22 @@ export default function RiwayatDiklatPage() {
       alert('Terjadi kesalahan: ' + err.message)
     } finally {
       setUploading(false)
+    }
+  }
+
+  // Fungsi Aksi Admin: Verifikasi (Terima / Tolak)
+  const handleVerifikasiStatus = async (id: string, status: 'Diterima' | 'Ditolak') => {
+    const { error } = await supabase
+      .from('credit_and_training')
+      .update({ status_verifikasi: status })
+      .eq('id', id)
+
+    if (error) {
+      alert('Gagal memperbarui status verifikasi: ' + error.message)
+    } else {
+      alert(`Pengajuan berhasil ${status.toLowerCase()}!`)
+      setDiklatList(diklatList.map(item => item.id === id ? { ...item, status_verifikasi: status } : item))
+      setVerifikasiList(verifikasiList.map(item => item.id === id ? { ...item, status_verifikasi: status } : item))
     }
   }
 
@@ -186,8 +216,7 @@ export default function RiwayatDiklatPage() {
         alert('Gagal menghapus data: ' + error.message)
       } else {
         setDiklatList(diklatList.filter((item) => item.id !== id))
-        setSiasnKursusData(siasnKursusData.filter((item) => item.id !== id))
-        setSiasnPimpinanData(siasnPimpinanData.filter((item) => item.id !== id))
+        setVerifikasiList(verifikasiList.filter((item) => item.id !== id))
         alert('Data berhasil dihapus.')
       }
     }
@@ -246,7 +275,7 @@ export default function RiwayatDiklatPage() {
           </button>
         </div>
 
-        {/* Tab Navigasi Sekunder sesuai urutan permintaan */}
+        {/* Tab Navigasi Sekunder */}
         <div className="flex items-center gap-2 mb-6 border-b pb-4 overflow-x-auto">
           <button 
             onClick={() => setActiveTab('riwayat')}
@@ -258,7 +287,7 @@ export default function RiwayatDiklatPage() {
             onClick={() => setActiveTab('verifikasi')}
             className={`px-4 py-2 rounded-lg text-sm font-medium transition flex items-center gap-2 whitespace-nowrap ${activeTab === 'verifikasi' ? 'bg-sky-100 text-sky-800 font-semibold shadow-sm' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
           >
-            Proses Verifikasi <span className="bg-[#1b2a4a] text-white text-xs px-2 py-0.5 rounded-full">0</span>
+            Proses Verifikasi <span className="bg-[#1b2a4a] text-white text-xs px-2 py-0.5 rounded-full">{isAdmin ? verifikasiList.filter(i => i.status_verifikasi === 'Pending').length : verifikasiList.length}</span>
           </button>
           <button 
             onClick={() => setActiveTab('siasn_kursus')}
@@ -280,19 +309,17 @@ export default function RiwayatDiklatPage() {
           </button>
         </div>
 
-        {/* TAB 1: RIWAYAT DIKLAT */}
+        {/* TAB 1: RIWAYAT DIKLAT (DENGAN KOLOM STATUS DI SAMPING KANAN NAMA SERTIFIKAT/DIKLAT) */}
         {activeTab === 'riwayat' && (
           <div>
-            {isAdmin && (
-              <div className="mb-4">
-                <button 
-                  onClick={() => setShowModal(true)}
-                  className="bg-[#1b2a4a] hover:bg-sky-900 text-white text-xs font-bold px-5 py-3 rounded-lg shadow transition tracking-wider uppercase"
-                >
-                  + TAMBAH DATA
-                </button>
-              </div>
-            )}
+            <div className="mb-4">
+              <button 
+                onClick={() => setShowModal(true)}
+                className="bg-[#1b2a4a] hover:bg-sky-900 text-white text-xs font-bold px-5 py-3 rounded-lg shadow transition tracking-wider uppercase"
+              >
+                {isAdmin ? '+ TAMBAH DATA' : '+ AJUKAN USULAN DIKLAT'}
+              </button>
+            </div>
 
             <div className="bg-white rounded-xl shadow-sm border overflow-hidden">
               <div className="overflow-x-auto">
@@ -300,8 +327,10 @@ export default function RiwayatDiklatPage() {
                   <thead>
                     <tr className="bg-gray-50 border-b text-[11px] font-bold text-gray-600 uppercase tracking-wider">
                       <th className="p-3 text-center">NO</th>
+                      {isAdmin && <th className="p-3">PEGAWAI</th>}
                       <th className="p-3">JENIS KEGIATAN</th>
                       <th className="p-3">NAMA SERTIFIKAT / DIKLAT</th>
+                      <th className="p-3 text-center">STATUS</th>
                       <th className="p-3">JUMLAH AK</th>
                       <th className="p-3">TAHUN</th>
                       <th className="p-3 text-center">SERTIFIKAT</th>
@@ -312,16 +341,32 @@ export default function RiwayatDiklatPage() {
                   <tbody className="divide-y text-xs text-gray-700">
                     {diklatList.length === 0 ? (
                       <tr>
-                        <td colSpan={isAdmin ? 8 : 7} className="p-8 text-center text-gray-400 italic">
-                          Belum ada data riwayat diklat/sertifikasi. {isAdmin ? 'Silakan klik tombol "+ TAMBAH DATA" untuk menambahkan.' : ''}
+                        <td colSpan={isAdmin ? 10 : 8} className="p-8 text-center text-gray-400 italic">
+                          Belum ada data riwayat diklat/sertifikasi.
                         </td>
                       </tr>
                     ) : (
                       diklatList.map((item, index) => (
                         <tr key={item.id} className="hover:bg-gray-50 transition">
                           <td className="p-3 text-center font-semibold">{index + 1}</td>
+                          {isAdmin && (
+                            <td className="p-3 font-semibold text-sky-800">
+                              {item.employees?.nama || '-'}
+                              <div className="text-[10px] text-gray-500 font-mono">{item.employees?.nip}</div>
+                            </td>
+                          )}
                           <td className="p-3 font-semibold text-amber-700">{item.jenis_kegiatan}</td>
                           <td className="p-3 font-medium text-sky-700">{item.nama_sertifikat_diklat}</td>
+                          {/* KOLOM STATUS DI SAMPING KANAN NAMA SERTIFIKAT / DIKLAT */}
+                          <td className="p-3 text-center">
+                            <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                              item.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
+                              item.status_verifikasi === 'Ditolak' ? 'bg-red-100 text-red-800' :
+                              'bg-amber-100 text-amber-800'
+                            }`}>
+                              {item.status_verifikasi || 'Diterima'}
+                            </span>
+                          </td>
                           <td className="p-3 font-bold text-emerald-600">{item.jumlah_angka_kredit || '-'}</td>
                           <td className="p-3">{item.tahun_kegiatan}</td>
                           <td className="p-3 text-center">
@@ -340,7 +385,7 @@ export default function RiwayatDiklatPage() {
                             )}
                           </td>
                           <td className="p-3 font-mono text-[10px] text-gray-500 whitespace-pre-line">
-                            {employee?.nama}<br/>{new Date(item.updated_at).toLocaleString()}
+                            {item.employees?.nama || employee?.nama}<br/>{new Date(item.updated_at).toLocaleString()}
                           </td>
                           {isAdmin && (
                             <td className="p-3 text-center">
@@ -358,11 +403,6 @@ export default function RiwayatDiklatPage() {
 
               <div className="flex justify-between items-center p-4 bg-white border-t">
                 <span className="text-xs text-gray-500">Menampilkan {diklatList.length} data</span>
-                <div className="flex gap-1">
-                  <button className="px-3 py-1 border rounded text-xs text-gray-500 hover:bg-gray-100">⟨</button>
-                  <button className="px-3 py-1 bg-[#1b2a4a] text-white rounded text-xs font-bold">1</button>
-                  <button className="px-3 py-1 border rounded text-xs text-gray-500 hover:bg-gray-100">⟩</button>
-                </div>
               </div>
             </div>
           </div>
@@ -371,8 +411,86 @@ export default function RiwayatDiklatPage() {
         {/* TAB 2: PROSES VERIFIKASI */}
         {activeTab === 'verifikasi' && (
           <div className="bg-white rounded-xl shadow-sm border p-6">
-            <h3 className="text-sm font-bold text-gray-800 mb-4 uppercase tracking-wider">Antrean Proses Verifikasi Diklat / Sertifikasi</h3>
-            <p className="text-xs text-gray-400 italic py-6 text-center">Tidak ada pengajuan diklat yang sedang dalam proses verifikasi.</p>
+            <h3 className="text-sm font-bold text-gray-800 mb-4 uppercase tracking-wider">
+              {isAdmin ? 'Antrean Proses Verifikasi Usulan Diklat (Semua Pegawai)' : 'Status Pengajuan Usulan Diklat Saya'}
+            </h3>
+            
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse text-xs">
+                <thead>
+                  <tr className="bg-gray-50 border-b text-gray-600 uppercase">
+                    <th className="p-3 text-center">No</th>
+                    {isAdmin && <th className="p-3">Nama Pegawai</th>}
+                    <th className="p-3">Jenis Kegiatan</th>
+                    <th className="p-3">Nama Sertifikat / Diklat</th>
+                    <th className="p-3 text-center">Status</th>
+                    <th className="p-3 text-center">Berkas</th>
+                    {isAdmin && <th className="p-3 text-center">Aksi Verifikasi</th>}
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {verifikasiList.length === 0 ? (
+                    <tr>
+                      <td colSpan={isAdmin ? 7 : 5} className="p-6 text-center text-gray-400 italic">
+                        Tidak ada pengajuan diklat yang sedang dalam proses verifikasi.
+                      </td>
+                    </tr>
+                  ) : (
+                    verifikasiList.map((item, idx) => (
+                      <tr key={item.id} className="hover:bg-gray-50">
+                        <td className="p-3 text-center font-semibold">{idx + 1}</td>
+                        {isAdmin && (
+                          <td className="p-3 font-semibold text-sky-800">
+                            {item.employees?.nama || '-'}
+                            <div className="text-[10px] text-gray-500 font-mono">{item.employees?.nip}</div>
+                          </td>
+                        )}
+                        <td className="p-3 font-semibold text-amber-700">{item.jenis_kegiatan}</td>
+                        <td className="p-3 font-medium text-sky-700">{item.nama_sertifikat_diklat}</td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            item.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
+                            item.status_verifikasi === 'Ditolak' ? 'bg-red-100 text-red-800' :
+                            'bg-amber-100 text-amber-800'
+                          }`}>
+                            {item.status_verifikasi || 'Pending'}
+                          </span>
+                        </td>
+                        <td className="p-3 text-center">
+                          {item.sertifikat_url ? (
+                            <a href={item.sertifikat_url} target="_blank" rel="noopener noreferrer" className="text-sky-600 underline">📄 Lihat PDF</a>
+                          ) : (
+                            '-'
+                          )}
+                        </td>
+                        {isAdmin && (
+                          <td className="p-3 text-center">
+                            {item.status_verifikasi === 'Pending' ? (
+                              <div className="flex items-center justify-center gap-2">
+                                <button 
+                                  onClick={() => handleVerifikasiStatus(item.id, 'Diterima')}
+                                  className="px-2.5 py-1 bg-emerald-600 text-white rounded text-[11px] font-semibold hover:bg-emerald-700"
+                                >
+                                  Terima
+                                </button>
+                                <button 
+                                  onClick={() => handleVerifikasiStatus(item.id, 'Ditolak')}
+                                  className="px-2.5 py-1 bg-red-600 text-white rounded text-[11px] font-semibold hover:bg-red-700"
+                                >
+                                  Tolak
+                                </button>
+                              </div>
+                            ) : (
+                              <span className="text-gray-400 italic">Selesai</span>
+                            )}
+                          </td>
+                        )}
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         )}
 
@@ -393,19 +511,29 @@ export default function RiwayatDiklatPage() {
                   <tr className="bg-gray-50 border-b text-gray-600 uppercase">
                     <th className="p-3">Jenis Kegiatan</th>
                     <th className="p-3">Nama Sertifikat / Diklat (Kursus)</th>
+                    <th className="p-3 text-center">Status</th>
                     <th className="p-3">Tahun</th>
                   </tr>
                 </thead>
                 <tbody>
                   {siasnKursusData.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="p-6 text-center text-gray-400 italic">Belum ada data kursus dari server SIASN.</td>
+                      <td colSpan={4} className="p-6 text-center text-gray-400 italic">Belum ada data kursus dari server SIASN.</td>
                     </tr>
                   ) : (
                     siasnKursusData.map((s, idx) => (
                       <tr key={idx} className="border-b">
                         <td className="p-3 font-semibold">{s.jenis_kegiatan}</td>
                         <td className="p-3">{s.nama_sertifikat_diklat}</td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            s.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
+                            s.status_verifikasi === 'Ditolak' ? 'bg-red-100 text-red-800' :
+                            'bg-amber-100 text-amber-800'
+                          }`}>
+                            {s.status_verifikasi || 'Diterima'}
+                          </span>
+                        </td>
                         <td className="p-3">{s.tahun_kegiatan}</td>
                       </tr>
                     ))
@@ -433,19 +561,29 @@ export default function RiwayatDiklatPage() {
                   <tr className="bg-gray-50 border-b text-gray-600 uppercase">
                     <th className="p-3">Jenis Kegiatan</th>
                     <th className="p-3">Nama Diklat Pimpinan</th>
+                    <th className="p-3 text-center">Status</th>
                     <th className="p-3">Tahun</th>
                   </tr>
                 </thead>
                 <tbody>
                   {siasnPimpinanData.length === 0 ? (
                     <tr>
-                      <td colSpan={3} className="p-6 text-center text-gray-400 italic">Belum ada data Diklat Pimpinan dari server SIASN.</td>
+                      <td colSpan={4} className="p-6 text-center text-gray-400 italic">Belum ada data Diklat Pimpinan dari server SIASN.</td>
                     </tr>
                   ) : (
                     siasnPimpinanData.map((s, idx) => (
                       <tr key={idx} className="border-b">
                         <td className="p-3 font-semibold">{s.jenis_kegiatan}</td>
                         <td className="p-3">{s.nama_sertifikat_diklat}</td>
+                        <td className="p-3 text-center">
+                          <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
+                            s.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
+                            s.status_verifikasi === 'Ditolak' ? 'bg-red-100 text-red-800' :
+                            'bg-amber-100 text-amber-800'
+                          }`}>
+                            {s.status_verifikasi || 'Diterima'}
+                          </span>
+                        </td>
                         <td className="p-3">{s.tahun_kegiatan}</td>
                       </tr>
                     ))
@@ -478,11 +616,13 @@ export default function RiwayatDiklatPage() {
           </div>
         )}
 
-        {/* Modal Tambah Diklat (Hanya Admin) */}
-        {isAdmin && showModal && (
+        {/* Modal Tambah / Ajukan Diklat */}
+        {showModal && (
           <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
             <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
-              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Tambah Riwayat Diklat / Sertifikasi Baru</h3>
+              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">
+                {isAdmin ? 'Tambah Riwayat Diklat / Sertifikasi Baru' : 'Ajukan Usulan Riwayat Diklat'}
+              </h3>
               <form onSubmit={handleTambahDiklat} className="space-y-3 text-xs">
                 <div>
                   <label className="block font-medium text-gray-700 mb-1">Jenis Kegiatan</label>
@@ -557,7 +697,7 @@ export default function RiwayatDiklatPage() {
                     disabled={uploading}
                     className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
                   >
-                    {uploading ? 'Mengupload...' : 'Simpan Diklat'}
+                    {uploading ? 'Mengupload...' : (isAdmin ? 'Simpan Diklat' : 'Kirim Usulan')}
                   </button>
                 </div>
               </form>
