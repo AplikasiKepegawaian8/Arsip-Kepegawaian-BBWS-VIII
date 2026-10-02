@@ -45,7 +45,22 @@ export default function RiwayatJabatanPage() {
 
     const fetchData = async () => {
       const nipAktif = localStorage.getItem('nip_aktif')
-      if (!nipAktif) {
+      const loginTime = localStorage.getItem('login_time')
+      const DUABELAS_JAM_MS = 12 * 60 * 60 * 1000 // 12 jam dalam milidetik
+
+      // Validasi sesi kosong atau belum login
+      if (!nipAktif || !loginTime) {
+        router.push('/login')
+        return
+      }
+
+      // Validasi batas waktu 12 jam
+      const waktuSekarang = new Date().getTime()
+      const selisihWaktu = waktuSekarang - parseInt(loginTime)
+
+      if (selisihWaktu > DUABELAS_JAM_MS) {
+        localStorage.clear()
+        alert('Sesi Anda telah kedaluwarsa (lebih dari 12 jam). Silakan login kembali.')
         router.push('/login')
         return
       }

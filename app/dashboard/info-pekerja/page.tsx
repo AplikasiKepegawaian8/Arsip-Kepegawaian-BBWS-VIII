@@ -21,24 +21,61 @@ export default function InfoPegawaiPage() {
 
   useEffect(() => {
     const role = localStorage.getItem('role_aktif')
-    const nipAktif = localStorage.getItem('nip_aktif')
-
-    if (!nipAktif) {
-      router.push('/login')
-      return
-    }
-
     if (role === 'admin') {
       setIsAdmin(true)
     }
 
-    fetchData()
+    const fetchDataAndValidateSession = async () => {
+      const nipAktif = localStorage.getItem('nip_aktif')
+      const loginTime = localStorage.getItem('login_time')
+      const DUABELAS_JAM_MS = 12 * 60 * 60 * 1000 // 12 jam dalam milidetik
+
+      // Validasi sesi kosong atau belum login
+      if (!nipAktif || !loginTime) {
+        router.push('/login')
+        return
+      }
+
+      // Validasi batas waktu 12 jam
+      const waktuSekarang = new Date().getTime()
+      const selisihWaktu = waktuSekarang - parseInt(loginTime)
+
+      if (selisihWaktu > DUABELAS_JAM_MS) {
+        localStorage.clear()
+        alert('Sesi Anda telah kedaluwarsa (lebih dari 12 jam). Silakan login kembali.')
+        router.push('/login')
+        return
+      }
+
+      // Ambil data user yang sedang login untuk header
+      const { data: userData } = await supabase
+        .from('employees')
+        .select('*')
+        .eq('nip', nipAktif)
+        .single()
+
+      if (userData) setCurrentUser(userData)
+
+      // Ambil daftar SELURUH pegawai untuk direktori
+      const { data: listData, error } = await supabase
+        .from('employees')
+        .select('*')
+        .order('nama', { ascending: true })
+
+      if (error) {
+        console.error('Gagal memuat daftar pegawai:', error.message)
+      } else {
+        setEmployees(listData || [])
+      }
+      setLoading(false)
+    }
+
+    fetchDataAndValidateSession()
   }, [router])
 
   const fetchData = async () => {
     const nipAktif = localStorage.getItem('nip_aktif')
 
-    // Ambil data user yang sedang login untuk header
     const { data: userData } = await supabase
       .from('employees')
       .select('*')
@@ -47,7 +84,6 @@ export default function InfoPegawaiPage() {
 
     if (userData) setCurrentUser(userData)
 
-    // Ambil daftar SELURUH pegawai untuk direktori
     const { data: listData, error } = await supabase
       .from('employees')
       .select('*')
@@ -58,7 +94,6 @@ export default function InfoPegawaiPage() {
     } else {
       setEmployees(listData || [])
     }
-    setLoading(false)
   }
 
   // Filter pencarian pegawai berdasarkan nama atau NIP
