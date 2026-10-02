@@ -176,7 +176,6 @@ export default function DynamicDetailPage() {
             <div className="flex justify-between items-center pb-4 mb-6 border-b">
               <h2 className="text-base font-bold text-gray-800">Data Utama, Pendidikan & Keluarga</h2>
               <div className="flex gap-2">
-                <button className="bg-amber-400 hover:bg-amber-500 text-white text-xs font-bold px-4 py-2 rounded-lg shadow-sm transition">📄 LIHAT CV</button>
                 
                 {/* Tombol UBAH SEMUA DATA hanya muncul jika akun yang login adalah ADMIN */}
                 {isAdmin && (
