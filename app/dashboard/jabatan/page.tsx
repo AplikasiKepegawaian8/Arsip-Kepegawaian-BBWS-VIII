@@ -10,6 +10,7 @@ export default function RiwayatJabatanPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState('riwayat')
   const [showModal, setShowModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [uploading, setUploading] = useState(false)
 
   // State form tambah/ajukan data Jabatan
@@ -20,6 +21,16 @@ export default function RiwayatJabatanPage() {
     noSk: ''
   })
   const [fileSk, setFileSk] = useState<File | null>(null)
+
+  // State form edit Jabatan
+  const [editId, setEditId] = useState<string | null>('')
+  const [formEditJabatan, setFormEditJabatan] = useState({
+    jabatan: '',
+    eselon: '',
+    tmtJabatan: '',
+    noSk: ''
+  })
+  const [editFileSk, setEditFileSk] = useState<File | null>(null)
 
   const [jabatanList, setJabatanList] = useState<any[]>([])
   const [verifikasiList, setVerifikasiList] = useState<any[]>([])
@@ -54,7 +65,7 @@ export default function RiwayatJabatanPage() {
 
       setEmployee(empData)
 
-      // 2. Ambil data riwayat jabatan dengan relasi ke tabel employees (untuk menampilkan nama pengaju jika admin)
+      // 2. Ambil data riwayat jabatan dengan relasi ke tabel employees
       const roleAktif = localStorage.getItem('role_aktif')
       const isUserAdmin = roleAktif === 'admin'
 
@@ -63,7 +74,6 @@ export default function RiwayatJabatanPage() {
         .select('*, employees(nama, nip)')
         .order('tmt_jabatan', { ascending: false })
 
-      // Jika bukan admin, hanya ambil data milik pegawai yang sedang login
       if (!isUserAdmin) {
         query = query.eq('employee_id', empData.id)
       }
@@ -75,18 +85,13 @@ export default function RiwayatJabatanPage() {
       } else {
         const dataMentah = posData || []
         
-        // Untuk tabel riwayat utama (hanya yang statusnya Diterima / kosong)
         const diterima = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Diterima')
-        
-        // Untuk tab verifikasi (yang berstatus Pending / Ditolak)
         const verifikasi = dataMentah.filter(item => item.status_verifikasi && item.status_verifikasi !== 'Diterima')
 
         if (isUserAdmin) {
-          // Admin melihat semua yang berstatus pending/ditolak di tab verifikasi
           setVerifikasiList(dataMentah.filter(item => item.status_verifikasi && item.status_verifikasi !== 'Diterima'))
           setJabatanList(diterima)
         } else {
-          // User biasa hanya melihat miliknya sendiri
           setJabatanList(diterima.filter(item => item.employee_id === empData.id))
           setVerifikasiList(verifikasi)
         }
@@ -106,7 +111,7 @@ export default function RiwayatJabatanPage() {
     fetchData()
   }, [router])
 
-  // Fungsi Tambah/Ajukan Data Jabatan ke Supabase (Bisa User & Admin)
+  // Fungsi Tambah/Ajukan Data Jabatan ke Supabase
   const handleTambahJabatan = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!employee) return
@@ -142,7 +147,7 @@ export default function RiwayatJabatanPage() {
         tmt_jabatan: formJabatan.tmtJabatan,
         no_sk: formJabatan.noSk,
         arsip_sk_url: publicUrl,
-        status_verifikasi: isAdmin ? 'Diterima' : 'Pending', // Admin langsung diterima, User berstatus Pending
+        status_verifikasi: isAdmin ? 'Diterima' : 'Pending',
         updated_at: new Date().toISOString()
       }
 
@@ -174,6 +179,84 @@ export default function RiwayatJabatanPage() {
     }
   }
 
+  // Fungsi Membuka Modal Edit dengan Data Terpilih
+  const handleOpenEdit = (item: any) => {
+    setEditId(item.id)
+    setFormEditJabatan({
+      jabatan: item.jabatan || '',
+      eselon: item.eselon || '',
+      tmtJabatan: item.tmt_jabatan || '',
+      noSk: item.no_sk || ''
+    })
+    setEditFileSk(null)
+    setShowEditModal(true)
+  }
+
+  // Fungsi Simpan Perubahan Edit Jabatan (Hanya Admin)
+  const handleUpdateJabatan = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isAdmin || !editId) return
+
+    setUploading(true)
+    let publicUrl = undefined
+
+    try {
+      if (editFileSk) {
+        const fileExt = editFileSk.name.split('.').pop()
+        const fileName = `jabatan_edit_${Date.now()}.${fileExt}`
+        const { error: uploadError } = await supabase.storage
+          .from('arsip_sk')
+          .upload(fileName, editFileSk)
+
+        if (uploadError) {
+          alert('Gagal mengupload file PDF: ' + uploadError.message)
+          setUploading(false)
+          return
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('arsip_sk')
+          .getPublicUrl(fileName)
+
+        publicUrl = urlData.publicUrl
+      }
+
+      const dataUpdate: any = {
+        jabatan: formEditJabatan.jabatan,
+        eselon: formEditJabatan.eselon,
+        tmt_jabatan: formEditJabatan.tmtJabatan,
+        no_sk: formEditJabatan.noSk,
+        updated_at: new Date().toISOString()
+      }
+
+      if (publicUrl) {
+        dataUpdate.arsip_sk_url = publicUrl
+      }
+
+      const { data, error } = await supabase
+        .from('employee_positions')
+        .update(dataUpdate)
+        .eq('id', editId)
+        .select('*, employees(nama, nip)')
+
+      if (error) {
+        alert('Gagal memperbarui data jabatan: ' + error.message)
+      } else {
+        alert('Data jabatan berhasil diperbarui!')
+        if (data) {
+          const itemUpdated = data[0]
+          setJabatanList(jabatanList.map(item => item.id === editId ? itemUpdated : item))
+        }
+        setShowEditModal(false)
+        setEditId(null)
+      }
+    } catch (err: any) {
+      alert('Terjadi kesalahan: ' + err.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
   // Fungsi Aksi Admin: Verifikasi (Terima / Tolak)
   const handleVerifikasiStatus = async (id: string, status: 'Diterima' | 'Ditolak') => {
     const { error } = await supabase
@@ -185,7 +268,6 @@ export default function RiwayatJabatanPage() {
       alert('Gagal memperbarui status verifikasi: ' + error.message)
     } else {
       alert(`Pengajuan berhasil ${status.toLowerCase()}!`)
-      // Perbarui state lokal
       setVerifikasiList(verifikasiList.map(item => {
         if (item.id === id) {
           const updated = { ...item, status_verifikasi: status }
@@ -225,8 +307,6 @@ export default function RiwayatJabatanPage() {
   if (loading) {
     return <div className="flex min-h-screen items-center justify-center">Memuat data jabatan dari database...</div>
   }
-
-  const jumlahPending = verifikasiList.filter(item => item.status_verifikasi === 'Pending').length
 
   return (
     <div className="flex min-h-screen bg-gray-50">
@@ -360,6 +440,9 @@ export default function RiwayatJabatanPage() {
                           {isAdmin && (
                             <td className="p-3 text-center">
                               <div className="flex items-center justify-center gap-2">
+                                {/* Tombol Edit */}
+                                <button onClick={() => handleOpenEdit(item)} className="p-1 text-amber-600 hover:bg-amber-50 rounded" title="Edit">✏️</button>
+                                {/* Tombol Hapus */}
                                 <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
                               </div>
                             </td>
@@ -607,6 +690,85 @@ export default function RiwayatJabatanPage() {
                     className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
                   >
                     {uploading ? 'Mengirim...' : (isAdmin ? 'Simpan Jabatan' : 'Kirim Usulan')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Edit Jabatan (Hanya Admin) */}
+        {showEditModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
+              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Edit Riwayat Jabatan</h3>
+              <form onSubmit={handleUpdateJabatan} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Jabatan</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditJabatan.jabatan}
+                    onChange={(e) => setFormEditJabatan({...formEditJabatan, jabatan: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Eselon (Opsional)</label>
+                  <input 
+                    type="text" 
+                    value={formEditJabatan.eselon}
+                    onChange={(e) => setFormEditJabatan({...formEditJabatan, eselon: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">TMT Jabatan</label>
+                  <input 
+                    type="date" 
+                    required
+                    value={formEditJabatan.tmtJabatan}
+                    onChange={(e) => setFormEditJabatan({...formEditJabatan, tmtJabatan: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Nomor SK</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditJabatan.noSk}
+                    onChange={(e) => setFormEditJabatan({...formEditJabatan, noSk: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Ganti Berkas SK Jabatan (Opsional PDF)</label>
+                  <input 
+                    type="file" 
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setEditFileSk(e.target.files[0])
+                      }
+                    }}
+                    className="w-full border rounded p-1.5 bg-gray-50 text-gray-600 text-xs"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowEditModal(false)}
+                    className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 font-medium"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={uploading}
+                    className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
+                  >
+                    {uploading ? 'Menyimpan...' : 'Simpan Perubahan'}
                   </button>
                 </div>
               </form>

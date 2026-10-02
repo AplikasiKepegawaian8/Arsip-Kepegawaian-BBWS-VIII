@@ -10,6 +10,7 @@ export default function RiwayatPenghargaanPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState('riwayat')
   const [showModal, setShowModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [uploading, setUploading] = useState(false)
 
   // State form tambah/ajukan penghargaan
@@ -19,6 +20,15 @@ export default function RiwayatPenghargaanPage() {
     tanggalSk: ''
   })
   const [fileSk, setFileSk] = useState<File | null>(null)
+
+  // State form edit penghargaan
+  const [editId, setEditId] = useState<string | null>('')
+  const [formEditPenghargaan, setFormEditPenghargaan] = useState({
+    namaPenghargaan: '',
+    noSk: '',
+    tanggalSk: ''
+  })
+  const [editFileSk, setEditFileSk] = useState<File | null>(null)
 
   const [penghargaanList, setPenghargaanList] = useState<any[]>([])
   const [verifikasiList, setVerifikasiList] = useState<any[]>([])
@@ -73,10 +83,7 @@ export default function RiwayatPenghargaanPage() {
       } else {
         const dataMentah = rewardData || []
         
-        // Tabel Utama: Menampilkan semua data sesuai role
         const dataUtama = isUserAdmin ? dataMentah : dataMentah.filter(item => item.employee_id === empData.id)
-        
-        // Tab Proses Verifikasi: Hanya menampilkan yang statusnya 'Pending'
         const verifikasi = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Pending')
 
         if (isUserAdmin) {
@@ -164,6 +171,82 @@ export default function RiwayatPenghargaanPage() {
         setFormPenghargaan({ namaPenghargaan: '', noSk: '', tanggalSk: '' })
         setFileSk(null)
         setShowModal(false)
+      }
+    } catch (err: any) {
+      alert('Terjadi kesalahan: ' + err.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // Fungsi Membuka Modal Edit dengan Data Terpilih
+  const handleOpenEdit = (item: any) => {
+    setEditId(item.id)
+    setFormEditPenghargaan({
+      namaPenghargaan: item.nama_penghargaan || '',
+      noSk: item.no_sk || '',
+      tanggalSk: item.tanggal_sk || ''
+    })
+    setEditFileSk(null)
+    setShowEditModal(true)
+  }
+
+  // Fungsi Simpan Perubahan Edit Penghargaan (Hanya Admin)
+  const handleUpdatePenghargaan = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isAdmin || !editId) return
+
+    setUploading(true)
+    let publicUrl = undefined
+
+    try {
+      if (editFileSk) {
+        const fileExt = editFileSk.name.split('.').pop()
+        const fileName = `penghargaan_edit_${Date.now()}.${fileExt}`
+        const { error: uploadError } = await supabase.storage
+          .from('arsip_sk')
+          .upload(fileName, editFileSk)
+
+        if (uploadError) {
+          alert('Gagal mengupload file PDF: ' + uploadError.message)
+          setUploading(false)
+          return
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('arsip_sk')
+          .getPublicUrl(fileName)
+
+        publicUrl = urlData.publicUrl
+      }
+
+      const dataUpdate: any = {
+        nama_penghargaan: formEditPenghargaan.namaPenghargaan,
+        no_sk: formEditPenghargaan.noSk,
+        tanggal_sk: formEditPenghargaan.tanggalSk,
+        updated_at: new Date().toISOString()
+      }
+
+      if (publicUrl) {
+        dataUpdate.arsip_sk_url = publicUrl
+      }
+
+      const { data, error } = await supabase
+        .from('rewards_history')
+        .update(dataUpdate)
+        .eq('id', editId)
+        .select('*, employees(nama, nip)')
+
+      if (error) {
+        alert('Gagal memperbarui data penghargaan: ' + error.message)
+      } else {
+        alert('Data penghargaan berhasil diperbarui!')
+        if (data) {
+          const itemUpdated = data[0]
+          setPenghargaanList(penghargaanList.map(item => item.id === editId ? itemUpdated : item))
+        }
+        setShowEditModal(false)
+        setEditId(null)
       }
     } catch (err: any) {
       alert('Terjadi kesalahan: ' + err.message)
@@ -292,7 +375,7 @@ export default function RiwayatPenghargaanPage() {
           </button>
         </div>
 
-        {/* TAB 1: RIWAYAT PENGHARGAAN (DENGAN KOLOM STATUS DI SAMPING KANAN NO SK) */}
+        {/* TAB 1: RIWAYAT PENGHARGAAN */}
         {activeTab === 'riwayat' && (
           <div>
             <div className="mb-4">
@@ -340,7 +423,6 @@ export default function RiwayatPenghargaanPage() {
                           )}
                           <td className="p-3 font-semibold text-amber-700">{item.nama_penghargaan}</td>
                           <td className="p-3 font-mono text-[11px]">{item.no_sk}</td>
-                          {/* KOLOM STATUS DI SAMPING KANAN NO SK */}
                           <td className="p-3 text-center">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
                               item.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
@@ -373,6 +455,9 @@ export default function RiwayatPenghargaanPage() {
                           {isAdmin && (
                             <td className="p-3 text-center">
                               <div className="flex items-center justify-center gap-2">
+                                {/* Tombol Edit */}
+                                <button onClick={() => handleOpenEdit(item)} className="p-1 text-amber-600 hover:bg-amber-50 rounded" title="Edit">✏️</button>
+                                {/* Tombol Hapus */}
                                 <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
                               </div>
                             </td>
@@ -616,6 +701,76 @@ export default function RiwayatPenghargaanPage() {
                     className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
                   >
                     {uploading ? 'Mengupload...' : (isAdmin ? 'Simpan Penghargaan' : 'Kirim Usulan')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Edit Penghargaan (Hanya Admin) */}
+        {showEditModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
+              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Edit Riwayat Penghargaan</h3>
+              <form onSubmit={handleUpdatePenghargaan} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Nama Jasa / Penghargaan</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditPenghargaan.namaPenghargaan}
+                    onChange={(e) => setFormEditPenghargaan({...formEditPenghargaan, namaPenghargaan: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Nomor SK</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditPenghargaan.noSk}
+                    onChange={(e) => setFormEditPenghargaan({...formEditPenghargaan, noSk: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Tanggal SK</label>
+                  <input 
+                    type="date" 
+                    required
+                    value={formEditPenghargaan.tanggalSk}
+                    onChange={(e) => setFormEditPenghargaan({...formEditPenghargaan, tanggalSk: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Ganti Berkas Arsip Digital (Opsional PDF)</label>
+                  <input 
+                    type="file" 
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setEditFileSk(e.target.files[0])
+                      }
+                    }}
+                    className="w-full border rounded p-1.5 bg-gray-50 text-gray-600 text-xs"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowEditModal(false)}
+                    className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 font-medium"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={uploading}
+                    className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
+                  >
+                    {uploading ? 'Menyimpan...' : 'Simpan Perubahan'}
                   </button>
                 </div>
               </form>

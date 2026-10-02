@@ -10,6 +10,7 @@ export default function RiwayatAngkaKreditPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState('riwayat')
   const [showModal, setShowModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [uploading, setUploading] = useState(false)
 
   // State form tambah Angka Kredit sesuai kolom Supabase
@@ -21,6 +22,17 @@ export default function RiwayatAngkaKreditPage() {
     tmtAk: ''
   })
   const [fileSk, setFileSk] = useState<File | null>(null)
+
+  // State form edit Angka Kredit
+  const [editId, setEditId] = useState<string | null>('')
+  const [formEditAk, setFormEditAk] = useState({
+    jabatan: '',
+    noPak: '',
+    tglPak: '',
+    jumlahAk: '',
+    tmtAk: ''
+  })
+  const [editFileSk, setEditFileSk] = useState<File | null>(null)
 
   const [akList, setAkList] = useState<any[]>([])
   const [verifikasiList, setVerifikasiList] = useState<any[]>([])
@@ -75,10 +87,7 @@ export default function RiwayatAngkaKreditPage() {
       } else {
         const dataMentah = akData || []
         
-        // Tabel Utama: Menampilkan semua data sesuai role
         const dataUtama = isUserAdmin ? dataMentah : dataMentah.filter(item => item.employee_id === empData.id)
-        
-        // Tab Proses Verifikasi: Hanya menampilkan yang statusnya 'Pending'
         const verifikasi = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Pending')
 
         if (isUserAdmin) {
@@ -168,6 +177,86 @@ export default function RiwayatAngkaKreditPage() {
         setFormAk({ jabatan: '', noPak: '', tglPak: '', jumlahAk: '', tmtAk: '' })
         setFileSk(null)
         setShowModal(false)
+      }
+    } catch (err: any) {
+      alert('Terjadi kesalahan: ' + err.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // Fungsi Membuka Modal Edit dengan Data Terpilih
+  const handleOpenEdit = (item: any) => {
+    setEditId(item.id)
+    setFormEditAk({
+      jabatan: item.jabatan || '',
+      noPak: item.no_pak || '',
+      tglPak: item.tgl_pak || '',
+      jumlahAk: item.jumlah_ak?.toString() || '',
+      tmtAk: item.tmt_ak || ''
+    })
+    setEditFileSk(null)
+    setShowEditModal(true)
+  }
+
+  // Fungsi Simpan Perubahan Edit Angka Kredit (Hanya Admin)
+  const handleUpdateAk = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isAdmin || !editId) return
+
+    setUploading(true)
+    let publicUrl = undefined
+
+    try {
+      if (editFileSk) {
+        const fileExt = editFileSk.name.split('.').pop()
+        const fileName = `ak_edit_${Date.now()}.${fileExt}`
+        const { error: uploadError } = await supabase.storage
+          .from('arsip_sk')
+          .upload(fileName, editFileSk)
+
+        if (uploadError) {
+          alert('Gagal mengupload file PDF: ' + uploadError.message)
+          setUploading(false)
+          return
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('arsip_sk')
+          .getPublicUrl(fileName)
+
+        publicUrl = urlData.publicUrl
+      }
+
+      const dataUpdate: any = {
+        jabatan: formEditAk.jabatan,
+        no_pak: formEditAk.noPak,
+        tgl_pak: formEditAk.tglPak,
+        jumlah_ak: parseFloat(formEditAk.jumlahAk) || 0,
+        tmt_ak: formEditAk.tmtAk,
+        updated_at: new Date().toISOString()
+      }
+
+      if (publicUrl) {
+        dataUpdate.arsip_sk_url = publicUrl
+      }
+
+      const { data, error } = await supabase
+        .from('credit_score_history')
+        .update(dataUpdate)
+        .eq('id', editId)
+        .select('*, employees(nama, nip)')
+
+      if (error) {
+        alert('Gagal memperbarui data angka kredit: ' + error.message)
+      } else {
+        alert('Data angka kredit berhasil diperbarui!')
+        if (data) {
+          const itemUpdated = data[0]
+          setAkList(akList.map(item => item.id === editId ? itemUpdated : item))
+        }
+        setShowEditModal(false)
+        setEditId(null)
       }
     } catch (err: any) {
       alert('Terjadi kesalahan: ' + err.message)
@@ -296,7 +385,7 @@ export default function RiwayatAngkaKreditPage() {
           </button>
         </div>
 
-        {/* TAB 1: RIWAYAT ANGKA KREDIT (DENGAN KOLOM STATUS DI SAMPING KANAN NO PAK) */}
+        {/* TAB 1: RIWAYAT ANGKA KREDIT */}
         {activeTab === 'riwayat' && (
           <div>
             <div className="mb-4">
@@ -345,7 +434,6 @@ export default function RiwayatAngkaKreditPage() {
                           )}
                           <td className="p-3 font-semibold text-sky-700">{item.jabatan}</td>
                           <td className="p-3 font-mono text-[11px]">{item.no_pak}</td>
-                          {/* KOLOM STATUS DI SAMPING KANAN NO PAK */}
                           <td className="p-3 text-center">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
                               item.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
@@ -379,6 +467,9 @@ export default function RiwayatAngkaKreditPage() {
                           {isAdmin && (
                             <td className="p-3 text-center">
                               <div className="flex items-center justify-center gap-2">
+                                {/* Tombol Edit */}
+                                <button onClick={() => handleOpenEdit(item)} className="p-1 text-amber-600 hover:bg-amber-50 rounded" title="Edit">✏️</button>
+                                {/* Tombol Hapus */}
                                 <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
                               </div>
                             </td>
@@ -648,6 +739,97 @@ export default function RiwayatAngkaKreditPage() {
                     className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
                   >
                     {uploading ? 'Mengupload...' : (isAdmin ? 'Simpan Angka Kredit' : 'Kirim Usulan')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Edit Angka Kredit (Hanya Admin) */}
+        {showEditModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
+              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Edit Riwayat Angka Kredit</h3>
+              <form onSubmit={handleUpdateAk} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Jabatan</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditAk.jabatan}
+                    onChange={(e) => setFormEditAk({...formEditAk, jabatan: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Nomor PAK</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditAk.noPak}
+                    onChange={(e) => setFormEditAk({...formEditAk, noPak: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Tanggal PAK (Tgl PAK)</label>
+                  <input 
+                    type="date" 
+                    required
+                    value={formEditAk.tglPak}
+                    onChange={(e) => setFormEditAk({...formEditAk, tglPak: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Jumlah Angka Kredit (Jumlah AK)</label>
+                  <input 
+                    type="number" 
+                    step="any"
+                    required
+                    value={formEditAk.jumlahAk}
+                    onChange={(e) => setFormEditAk({...formEditAk, jumlahAk: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">TMT Angka Kredit (TMT AK)</label>
+                  <input 
+                    type="date" 
+                    required
+                    value={formEditAk.tmtAk}
+                    onChange={(e) => setFormEditAk({...formEditAk, tmtAk: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Ganti Arsip Digital PAK (Opsional PDF)</label>
+                  <input 
+                    type="file" 
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setEditFileSk(e.target.files[0])
+                      }
+                    }}
+                    className="w-full border rounded p-1.5 bg-gray-50 text-gray-600 text-xs"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowEditModal(false)}
+                    className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 font-medium"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={uploading}
+                    className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
+                  >
+                    {uploading ? 'Menyimpan...' : 'Simpan Perubahan'}
                   </button>
                 </div>
               </form>

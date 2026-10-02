@@ -10,6 +10,7 @@ export default function RiwayatHukumanDisiplinPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState('riwayat')
   const [showModal, setShowModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [uploading, setUploading] = useState(false)
 
   // State form tambah Hukuman Disiplin
@@ -22,6 +23,18 @@ export default function RiwayatHukumanDisiplinPage() {
     keterangan: ''
   })
   const [fileSk, setFileSk] = useState<File | null>(null)
+
+  // State form edit Hukuman Disiplin
+  const [editId, setEditId] = useState<string | null>('')
+  const [formEditHukdis, setFormEditHukdis] = useState({
+    jenisHukuman: '',
+    alasanHukuman: '',
+    periodeHukuman: '',
+    noSk: '',
+    tanggalSk: '',
+    keterangan: ''
+  })
+  const [editFileSk, setEditFileSk] = useState<File | null>(null)
 
   const [hukdisList, setHukdisList] = useState<any[]>([])
   const [siasnData, setSiasnData] = useState<any[]>([])
@@ -162,6 +175,89 @@ export default function RiwayatHukumanDisiplinPage() {
         })
         setFileSk(null)
         setShowModal(false)
+      }
+    } catch (err: any) {
+      alert('Terjadi kesalahan: ' + err.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // Fungsi Membuka Modal Edit dengan Data Terpilih
+  const handleOpenEdit = (item: any) => {
+    setEditId(item.id)
+    setFormEditHukdis({
+      jenisHukuman: item.jenis_hukuman || item.nama_penghargaan_atau_disiplin || '',
+      alasanHukuman: item.alasan_hukuman || '',
+      periodeHukuman: item.periode_hukuman || '',
+      noSk: item.no_sk || '',
+      tanggalSk: item.tanggal_sk || '',
+      keterangan: item.keterangan || ''
+    })
+    setEditFileSk(null)
+    setShowEditModal(true)
+  }
+
+  // Fungsi Simpan Perubahan Edit Hukuman Disiplin (Hanya Admin)
+  const handleUpdateHukdis = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isAdmin || !editId) return
+
+    setUploading(true)
+    let publicUrl = undefined
+
+    try {
+      if (editFileSk) {
+        const fileExt = editFileSk.name.split('.').pop()
+        const fileName = `hukdis_edit_${Date.now()}.${fileExt}`
+        const { error: uploadError } = await supabase.storage
+          .from('arsip_sk')
+          .upload(fileName, editFileSk)
+
+        if (uploadError) {
+          alert('Gagal mengupload file PDF: ' + uploadError.message)
+          setUploading(false)
+          return
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('arsip_sk')
+          .getPublicUrl(fileName)
+
+        publicUrl = urlData.publicUrl
+      }
+
+      const dataUpdate: any = {
+        jenis_hukuman: formEditHukdis.jenisHukuman,
+        alasan_hukuman: formEditHukdis.alasanHukuman,
+        periode_hukuman: formEditHukdis.periodeHukuman,
+        no_sk: formEditHukdis.noSk,
+        tanggal_sk: formEditHukdis.tanggalSk,
+        keterangan: formEditHukdis.keterangan,
+        nama_penghargaan_atau_disiplin: formEditHukdis.jenisHukuman,
+        updated_at: new Date().toISOString()
+      }
+
+      if (publicUrl) {
+        dataUpdate.sk_url = publicUrl
+      }
+
+      const { data, error } = await supabase
+        .from('rewards_and_disciplines')
+        .update(dataUpdate)
+        .eq('id', editId)
+        .select()
+
+      if (error) {
+        alert('Gagal memperbarui data hukuman disiplin: ' + error.message)
+      } else {
+        alert('Data hukuman disiplin berhasil diperbarui!')
+        if (data) {
+          const itemUpdated = data[0]
+          setHukdisList(hukdisList.map(item => item.id === editId ? itemUpdated : item))
+        }
+        setShowEditModal(false)
+        setEditId(null)
       }
     } catch (err: any) {
       alert('Terjadi kesalahan: ' + err.message)
@@ -326,6 +422,9 @@ export default function RiwayatHukumanDisiplinPage() {
                           {isAdmin && (
                             <td className="p-3 text-center">
                               <div className="flex items-center justify-center gap-2">
+                                {/* Tombol Edit */}
+                                <button onClick={() => handleOpenEdit(item)} className="p-1 text-amber-600 hover:bg-amber-50 rounded" title="Edit">✏️</button>
+                                {/* Tombol Hapus */}
                                 <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
                               </div>
                             </td>
@@ -484,6 +583,103 @@ export default function RiwayatHukumanDisiplinPage() {
                     className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
                   >
                     {uploading ? 'Mengupload...' : 'Simpan Hukdis'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Edit Hukuman Disiplin (Hanya Admin) */}
+        {isAdmin && showEditModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Edit Riwayat Hukuman Disiplin</h3>
+              <form onSubmit={handleUpdateHukdis} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Jenis Hukuman</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditHukdis.jenisHukuman}
+                    onChange={(e) => setFormEditHukdis({...formEditHukdis, jenisHukuman: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Alasan Hukuman</label>
+                  <input 
+                    type="text" 
+                    value={formEditHukdis.alasanHukuman}
+                    onChange={(e) => setFormEditHukdis({...formEditHukdis, alasanHukuman: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Periode Hukuman</label>
+                  <input 
+                    type="text" 
+                    value={formEditHukdis.periodeHukuman}
+                    onChange={(e) => setFormEditHukdis({...formEditHukdis, periodeHukuman: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Nomor SK</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditHukdis.noSk}
+                    onChange={(e) => setFormEditHukdis({...formEditHukdis, noSk: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Tanggal SK</label>
+                  <input 
+                    type="date" 
+                    required
+                    value={formEditHukdis.tanggalSk}
+                    onChange={(e) => setFormEditHukdis({...formEditHukdis, tanggalSk: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Keterangan</label>
+                  <textarea 
+                    rows={2}
+                    value={formEditHukdis.keterangan}
+                    onChange={(e) => setFormEditHukdis({...formEditHukdis, keterangan: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Ganti Berkas Arsip Digital SK (Opsional PDF)</label>
+                  <input 
+                    type="file" 
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setEditFileSk(e.target.files[0])
+                      }
+                    }}
+                    className="w-full border rounded p-1.5 bg-gray-50 text-gray-600 text-xs"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowEditModal(false)}
+                    className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 font-medium"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={uploading}
+                    className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
+                  >
+                    {uploading ? 'Menyimpan...' : 'Simpan Perubahan'}
                   </button>
                 </div>
               </form>

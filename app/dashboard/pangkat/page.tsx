@@ -10,6 +10,7 @@ export default function RiwayatPangkatPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState('riwayat')
   const [showModal, setShowModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [uploading, setUploading] = useState(false)
 
   // State untuk form tambah data Pangkat
@@ -23,6 +24,19 @@ export default function RiwayatPangkatPage() {
     masaBulan: ''
   })
   const [fileSk, setFileSk] = useState<File | null>(null)
+
+  // State untuk form edit data Pangkat
+  const [editId, setEditId] = useState<string | null>('')
+  const [formEditPangkat, setFormEditPangkat] = useState({
+    golongan: '',
+    pangkat: '',
+    mulai: '',
+    akhir: '',
+    noSk: '',
+    masaTahun: '',
+    masaBulan: ''
+  })
+  const [editFileSk, setEditFileSk] = useState<File | null>(null)
 
   const [pangkatList, setPangkatList] = useState<any[]>([])
   const [verifikasiList, setVerifikasiList] = useState<any[]>([])
@@ -57,7 +71,7 @@ export default function RiwayatPangkatPage() {
 
       setEmployee(empData)
 
-      // 2. Ambil riwayat pangkat dari tabel rank_history dengan relasi ke employees (jika ada)
+      // 2. Ambil riwayat pangkat dari tabel rank_history dengan relasi ke employees
       const roleAktif = localStorage.getItem('role_aktif')
       const isUserAdmin = roleAktif === 'admin'
 
@@ -77,10 +91,7 @@ export default function RiwayatPangkatPage() {
       } else {
         const dataMentah = rankData || []
         
-        // Tabel Utama: Menampilkan semua data sesuai role
         const dataUtama = isUserAdmin ? dataMentah : dataMentah.filter(item => item.employee_id === empData.id)
-        
-        // Tab Proses Verifikasi: Hanya menampilkan yang statusnya 'Pending'
         const verifikasi = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Pending')
 
         if (isUserAdmin) {
@@ -173,6 +184,90 @@ export default function RiwayatPangkatPage() {
         setFormPangkat({ golongan: '', pangkat: '', mulai: '', akhir: '', noSk: '', masaTahun: '', masaBulan: '' })
         setFileSk(null)
         setShowModal(false)
+      }
+    } catch (err: any) {
+      alert('Terjadi kesalahan: ' + err.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // Fungsi Membuka Modal Edit dengan Data Terpilih
+  const handleOpenEdit = (item: any) => {
+    setEditId(item.id)
+    setFormEditPangkat({
+      golongan: item.golongan || '',
+      pangkat: item.pangkat || '',
+      mulai: item.mulai || '',
+      akhir: item.akhir || '',
+      noSk: item.no_sk || '',
+      masaTahun: item.masa_kerja_tahun?.toString() || '',
+      masaBulan: item.masa_kerja_bulan?.toString() || ''
+    })
+    setEditFileSk(null)
+    setShowEditModal(true)
+  }
+
+  // Fungsi Simpan Perubahan Edit Pangkat (Hanya Admin)
+  const handleUpdatePangkat = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isAdmin || !editId) return
+
+    setUploading(true)
+    let publicUrl = undefined
+
+    try {
+      if (editFileSk) {
+        const fileExt = editFileSk.name.split('.').pop()
+        const fileName = `pangkat_edit_${Date.now()}.${fileExt}`
+        const { error: uploadError } = await supabase.storage
+          .from('arsip_sk')
+          .upload(fileName, editFileSk)
+
+        if (uploadError) {
+          alert('Gagal mengupload file PDF: ' + uploadError.message)
+          setUploading(false)
+          return
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('arsip_sk')
+          .getPublicUrl(fileName)
+
+        publicUrl = urlData.publicUrl
+      }
+
+      const dataUpdate: any = {
+        golongan: formEditPangkat.golongan,
+        pangkat: formEditPangkat.pangkat,
+        mulai: formEditPangkat.mulai,
+        akhir: formEditPangkat.akhir ? formEditPangkat.akhir : null,
+        no_sk: formEditPangkat.noSk,
+        masa_kerja_tahun: parseInt(formEditPangkat.masaTahun) || 0,
+        masa_kerja_bulan: parseInt(formEditPangkat.masaBulan) || 0,
+        updated_at: new Date().toISOString()
+      }
+
+      if (publicUrl) {
+        dataUpdate.arsip_sk_url = publicUrl
+      }
+
+      const { data, error } = await supabase
+        .from('rank_history')
+        .update(dataUpdate)
+        .eq('id', editId)
+        .select('*, employees(nama, nip)')
+
+      if (error) {
+        alert('Gagal memperbarui data pangkat: ' + error.message)
+      } else {
+        alert('Data pangkat berhasil diperbarui!')
+        if (data) {
+          const itemUpdated = data[0]
+          setPangkatList(pangkatList.map(item => item.id === editId ? itemUpdated : item))
+        }
+        setShowEditModal(false)
+        setEditId(null)
       }
     } catch (err: any) {
       alert('Terjadi kesalahan: ' + err.message)
@@ -301,7 +396,7 @@ export default function RiwayatPangkatPage() {
           </button>
         </div>
 
-        {/* TAB 1: RIWAYAT PANGKAT (DENGAN KOLOM STATUS DI SAMPING KANAN NO SK) */}
+        {/* TAB 1: RIWAYAT PANGKAT */}
         {activeTab === 'riwayat' && (
           <div>
             <div className="mb-4">
@@ -355,7 +450,6 @@ export default function RiwayatPangkatPage() {
                           <td className="p-3">{item.mulai}</td>
                           <td className="p-3">{item.akhir || '-'}</td>
                           <td className="p-3 font-mono text-[11px]">{item.no_sk}</td>
-                          {/* KOLOM STATUS DI SAMPING KANAN NO SK */}
                           <td className="p-3 text-center">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
                               item.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
@@ -380,6 +474,9 @@ export default function RiwayatPangkatPage() {
                           {isAdmin && (
                             <td className="p-3 text-center">
                               <div className="flex items-center justify-center gap-2">
+                                {/* Tombol Edit */}
+                                <button onClick={() => handleOpenEdit(item)} className="p-1 text-amber-600 hover:bg-amber-50 rounded" title="Edit">✏️</button>
+                                {/* Tombol Hapus */}
                                 <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
                               </div>
                             </td>
@@ -671,6 +768,117 @@ export default function RiwayatPangkatPage() {
                     className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
                   >
                     {uploading ? 'Mengupload...' : (isAdmin ? 'Simpan Pangkat' : 'Kirim Usulan')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Edit Pangkat (Hanya Admin) */}
+        {showEditModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
+              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Edit Riwayat Pangkat</h3>
+              <form onSubmit={handleUpdatePangkat} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Golongan</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditPangkat.golongan}
+                    onChange={(e) => setFormEditPangkat({...formEditPangkat, golongan: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Pangkat</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditPangkat.pangkat}
+                    onChange={(e) => setFormEditPangkat({...formEditPangkat, pangkat: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-medium text-gray-700 mb-1">Tanggal Mulai</label>
+                    <input 
+                      type="date" 
+                      required
+                      value={formEditPangkat.mulai}
+                      onChange={(e) => setFormEditPangkat({...formEditPangkat, mulai: e.target.value})}
+                      className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700 mb-1">Tanggal Akhir (Opsional)</label>
+                    <input 
+                      type="date" 
+                      value={formEditPangkat.akhir}
+                      onChange={(e) => setFormEditPangkat({...formEditPangkat, akhir: e.target.value})}
+                      className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Nomor SK</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditPangkat.noSk}
+                    onChange={(e) => setFormEditPangkat({...formEditPangkat, noSk: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-medium text-gray-700 mb-1">Masa Kerja (Tahun)</label>
+                    <input 
+                      type="number" 
+                      value={formEditPangkat.masaTahun}
+                      onChange={(e) => setFormEditPangkat({...formEditPangkat, masaTahun: e.target.value})}
+                      className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700 mb-1">Masa Kerja (Bulan)</label>
+                    <input 
+                      type="number" 
+                      value={formEditPangkat.masaBulan}
+                      onChange={(e) => setFormEditPangkat({...formEditPangkat, masaBulan: e.target.value})}
+                      className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Ganti Berkas SK Pangkat (Opsional PDF)</label>
+                  <input 
+                    type="file" 
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setEditFileSk(e.target.files[0])
+                      }
+                    }}
+                    className="w-full border rounded p-1.5 bg-gray-50 text-gray-600 text-xs"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowEditModal(false)}
+                    className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 font-medium"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={uploading}
+                    className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
+                  >
+                    {uploading ? 'Menyimpan...' : 'Simpan Perubahan'}
                   </button>
                 </div>
               </form>

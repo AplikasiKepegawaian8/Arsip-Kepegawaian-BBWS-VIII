@@ -10,6 +10,7 @@ export default function RiwayatSkpPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState('riwayat')
   const [showModal, setShowModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [uploading, setUploading] = useState(false)
 
   // State form tambah SKP sesuai kolom Supabase
@@ -25,6 +26,21 @@ export default function RiwayatSkpPage() {
     predikat: 'Baik'
   })
   const [fileSkp, setFileSkp] = useState<File | null>(null)
+
+  // State form edit SKP
+  const [editId, setEditId] = useState<string | null>('')
+  const [formEditSkp, setFormEditSkp] = useState({
+    tahun: new Date().getFullYear().toString(),
+    status: 'Tahunan',
+    atasanLangsung: '',
+    nipAtasanLangsung: '',
+    atasanAtlas: '',
+    nipAtasanAtlas: '',
+    nilaiSkp: '',
+    nilaiPerilaku: '',
+    predikat: 'Baik'
+  })
+  const [editFileSkp, setEditFileSkp] = useState<File | null>(null)
 
   const [skpList, setSkpList] = useState<any[]>([])
   const [siasnData, setSiasnData] = useState<any[]>([])
@@ -168,6 +184,94 @@ export default function RiwayatSkpPage() {
         })
         setFileSkp(null)
         setShowModal(false)
+      }
+    } catch (err: any) {
+      alert('Terjadi kesalahan: ' + err.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // Fungsi Membuka Modal Edit dengan Data Terpilih
+  const handleOpenEdit = (item: any) => {
+    setEditId(item.id)
+    setFormEditSkp({
+      tahun: item.tahun?.toString() || new Date().getFullYear().toString(),
+      status: item.status || 'Tahunan',
+      atasanLangsung: item.atasan_langsung || '',
+      nipAtasanLangsung: item.nip_atasan_langsung || '',
+      atasanAtlas: item.atasan_atlas || '',
+      nipAtasanAtlas: item.nip_atasan_atlas || '',
+      nilaiSkp: item.nilai_skp?.toString() || '',
+      nilaiPerilaku: item.nilai_perilaku?.toString() || '',
+      predikat: item.predikat || 'Baik'
+    })
+    setEditFileSkp(null)
+    setShowEditModal(true)
+  }
+
+  // Fungsi Simpan Perubahan Edit SKP (Hanya Admin)
+  const handleUpdateSkp = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isAdmin || !editId) return
+
+    setUploading(true)
+    let publicUrl = undefined
+
+    try {
+      if (editFileSkp) {
+        const fileExt = editFileSkp.name.split('.').pop()
+        const fileName = `skp_edit_${Date.now()}.${fileExt}`
+        const { error: uploadError } = await supabase.storage
+          .from('arsip_sk')
+          .upload(fileName, editFileSkp)
+
+        if (uploadError) {
+          alert('Gagal mengupload file PDF: ' + uploadError.message)
+          setUploading(false)
+          return
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('arsip_sk')
+          .getPublicUrl(fileName)
+
+        publicUrl = urlData.publicUrl
+      }
+
+      const dataUpdate: any = {
+        tahun: parseInt(formEditSkp.tahun) || new Date().getFullYear(),
+        status: formEditSkp.status,
+        atasan_langsung: formEditSkp.atasanLangsung,
+        nip_atasan_langsung: formEditSkp.nipAtasanLangsung,
+        atasan_atlas: formEditSkp.atasanAtlas,
+        nip_atasan_atlas: formEditSkp.nipAtasanAtlas,
+        nilai_skp: parseFloat(formEditSkp.nilaiSkp) || 0,
+        nilai_perilaku: parseFloat(formEditSkp.nilaiPerilaku) || 0,
+        predikat: formEditSkp.predikat,
+        updated_at: new Date().toISOString()
+      }
+
+      if (publicUrl) {
+        dataUpdate.file_skp_url = publicUrl
+      }
+
+      const { data, error } = await supabase
+        .from('skp_history')
+        .update(dataUpdate)
+        .eq('id', editId)
+        .select()
+
+      if (error) {
+        alert('Gagal memperbarui data SKP: ' + error.message)
+      } else {
+        alert('Data SKP berhasil diperbarui!')
+        if (data) {
+          const itemUpdated = data[0]
+          setSkpList(skpList.map(item => item.id === editId ? itemUpdated : item))
+        }
+        setShowEditModal(false)
+        setEditId(null)
       }
     } catch (err: any) {
       alert('Terjadi kesalahan: ' + err.message)
@@ -350,6 +454,9 @@ export default function RiwayatSkpPage() {
                           {isAdmin && (
                             <td className="p-3 text-center">
                               <div className="flex items-center justify-center gap-2">
+                                {/* Tombol Edit */}
+                                <button onClick={() => handleOpenEdit(item)} className="p-1 text-amber-600 hover:bg-amber-50 rounded" title="Edit">✏️</button>
+                                {/* Tombol Hapus */}
                                 <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
                               </div>
                             </td>
@@ -579,6 +686,148 @@ export default function RiwayatSkpPage() {
                     className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
                   >
                     {uploading ? 'Mengupload...' : 'Simpan SKP'}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Edit SKP (Hanya Admin) */}
+        {isAdmin && showEditModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl max-h-[90vh] overflow-y-auto">
+              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Edit Riwayat SKP</h3>
+              <form onSubmit={handleUpdateSkp} className="space-y-3 text-xs">
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-medium text-gray-700 mb-1">Tahun</label>
+                    <input 
+                      type="number" 
+                      required
+                      value={formEditSkp.tahun}
+                      onChange={(e) => setFormEditSkp({...formEditSkp, tahun: e.target.value})}
+                      className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700 mb-1">Status / Periode</label>
+                    <select 
+                      value={formEditSkp.status}
+                      onChange={(e) => setFormEditSkp({...formEditSkp, status: e.target.value})}
+                      className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500 bg-white"
+                    >
+                      <option value="Tahunan">Tahunan</option>
+                      <option value="Periode 1">Periode 1</option>
+                      <option value="Periode 2">Periode 2</option>
+                      <option value="Periode 3">Periode 3</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Nama Atasan Langsung</label>
+                  <input 
+                    type="text" 
+                    value={formEditSkp.atasanLangsung}
+                    onChange={(e) => setFormEditSkp({...formEditSkp, atasanLangsung: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">NIP Atasan Langsung</label>
+                  <input 
+                    type="text" 
+                    value={formEditSkp.nipAtasanLangsung}
+                    onChange={(e) => setFormEditSkp({...formEditSkp, nipAtasanLangsung: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Nama Atasan ATLAS (Opsional)</label>
+                  <input 
+                    type="text" 
+                    value={formEditSkp.atasanAtlas}
+                    onChange={(e) => setFormEditSkp({...formEditSkp, atasanAtlas: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">NIP Atasan ATLAS (Opsional)</label>
+                  <input 
+                    type="text" 
+                    value={formEditSkp.nipAtasanAtlas}
+                    onChange={(e) => setFormEditSkp({...formEditSkp, nipAtasanAtlas: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="block font-medium text-gray-700 mb-1">Nilai SKP</label>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={formEditSkp.nilaiSkp}
+                      onChange={(e) => setFormEditSkp({...formEditSkp, nilaiSkp: e.target.value})}
+                      className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block font-medium text-gray-700 mb-1">Nilai Perilaku</label>
+                    <input 
+                      type="number" 
+                      step="any"
+                      value={formEditSkp.nilaiPerilaku}
+                      onChange={(e) => setFormEditSkp({...formEditSkp, nilaiPerilaku: e.target.value})}
+                      className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Predikat</label>
+                  <select 
+                    value={formEditSkp.predikat}
+                    onChange={(e) => setFormEditSkp({...formEditSkp, predikat: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500 bg-white"
+                  >
+                    <option value="Sangat Baik">Sangat Baik</option>
+                    <option value="Baik">Baik</option>
+                    <option value="Cukup">Cukup</option>
+                    <option value="Kurang">Kurang</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Ganti Berkas SKP (Opsional PDF)</label>
+                  <input 
+                    type="file" 
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setEditFileSkp(e.target.files[0])
+                      }
+                    }}
+                    className="w-full border rounded p-1.5 bg-gray-50 text-gray-600 text-xs"
+                  />
+                </div>
+
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowEditModal(false)}
+                    className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 font-medium"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={uploading}
+                    className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
+                  >
+                    {uploading ? 'Menyimpan...' : 'Simpan Perubahan'}
                   </button>
                 </div>
               </form>

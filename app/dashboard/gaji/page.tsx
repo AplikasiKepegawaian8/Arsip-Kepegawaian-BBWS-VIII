@@ -10,6 +10,7 @@ export default function RiwayatGajiPage() {
   const [isAdmin, setIsAdmin] = useState(false)
   const [activeTab, setActiveTab] = useState('riwayat')
   const [showModal, setShowModal] = useState(false)
+  const [showEditModal, setShowEditModal] = useState(false)
   const [uploading, setUploading] = useState(false)
 
   // State form tambah/ajukan data Gaji Berkala
@@ -19,6 +20,15 @@ export default function RiwayatGajiPage() {
     noSk: ''
   })
   const [fileSk, setFileSk] = useState<File | null>(null)
+
+  // State form edit data Gaji Berkala
+  const [editId, setEditId] = useState<string | null>('')
+  const [formEditGaji, setFormEditGaji] = useState({
+    gajiPokok: '',
+    tmtGaji: '',
+    noSk: ''
+  })
+  const [editFileSk, setEditFileSk] = useState<File | null>(null)
 
   const [gajiList, setGajiList] = useState<any[]>([])
   const [verifikasiList, setVerifikasiList] = useState<any[]>([])
@@ -72,10 +82,7 @@ export default function RiwayatGajiPage() {
       } else {
         const dataMentah = salaryData || []
         
-        // Tabel Utama: Menampilkan semua data sesuai role
         const dataUtama = isUserAdmin ? dataMentah : dataMentah.filter(item => item.employee_id === empData.id)
-        
-        // Tab Proses Verifikasi: Hanya menampilkan yang statusnya 'Pending'
         const verifikasi = dataMentah.filter(item => !item.status_verifikasi || item.status_verifikasi === 'Pending')
 
         if (isUserAdmin) {
@@ -166,6 +173,82 @@ export default function RiwayatGajiPage() {
         })
         setFileSk(null)
         setShowModal(false)
+      }
+    } catch (err: any) {
+      alert('Terjadi kesalahan: ' + err.message)
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // Fungsi Membuka Modal Edit dengan Data Terpilih
+  const handleOpenEdit = (item: any) => {
+    setEditId(item.id)
+    setFormEditGaji({
+      gajiPokok: item.gaji_pokok?.toString() || '',
+      tmtGaji: item.tmt_gaji || '',
+      noSk: item.no_sk || ''
+    })
+    setEditFileSk(null)
+    setShowEditModal(true)
+  }
+
+  // Fungsi Simpan Perubahan Edit Gaji (Hanya Admin)
+  const handleUpdateGaji = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!isAdmin || !editId) return
+
+    setUploading(true)
+    let publicUrl = undefined
+
+    try {
+      if (editFileSk) {
+        const fileExt = editFileSk.name.split('.').pop()
+        const fileName = `gaji_edit_${Date.now()}.${fileExt}`
+        const { error: uploadError } = await supabase.storage
+          .from('arsip_sk')
+          .upload(fileName, editFileSk)
+
+        if (uploadError) {
+          alert('Gagal mengupload file PDF: ' + uploadError.message)
+          setUploading(false)
+          return
+        }
+
+        const { data: urlData } = supabase.storage
+          .from('arsip_sk')
+          .getPublicUrl(fileName)
+
+        publicUrl = urlData.publicUrl
+      }
+
+      const dataUpdate: any = {
+        gaji_pokok: parseFloat(formEditGaji.gajiPokok) || 0,
+        tmt_gaji: formEditGaji.tmtGaji,
+        no_sk: formEditGaji.noSk,
+        updated_at: new Date().toISOString()
+      }
+
+      if (publicUrl) {
+        dataUpdate.arsip_sk_url = publicUrl
+      }
+
+      const { data, error } = await supabase
+        .from('salary_history')
+        .update(dataUpdate)
+        .eq('id', editId)
+        .select('*, employees(nama, nip)')
+
+      if (error) {
+        alert('Gagal memperbarui data gaji: ' + error.message)
+      } else {
+        alert('Data gaji berhasil diperbarui!')
+        if (data) {
+          const itemUpdated = data[0]
+          setGajiList(gajiList.map(item => item.id === editId ? itemUpdated : item))
+        }
+        setShowEditModal(false)
+        setEditId(null)
       }
     } catch (err: any) {
       alert('Terjadi kesalahan: ' + err.message)
@@ -367,6 +450,9 @@ export default function RiwayatGajiPage() {
                           {isAdmin && (
                             <td className="p-3 text-center">
                               <div className="flex items-center justify-center gap-2">
+                                {/* Tombol Edit */}
+                                <button onClick={() => handleOpenEdit(item)} className="p-1 text-amber-600 hover:bg-amber-50 rounded" title="Edit">✏️</button>
+                                {/* Tombol Hapus */}
                                 <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
                               </div>
                             </td>
@@ -562,6 +648,76 @@ export default function RiwayatGajiPage() {
                     className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
                   >
                     {uploading ? 'Mengirim...' : (isAdmin ? 'Simpan Gaji' : 'Kirim Usulan')}
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {/* Modal Edit Gaji (Hanya Admin) */}
+        {showEditModal && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center p-4 z-50">
+            <div className="bg-white rounded-xl p-6 w-full max-w-lg shadow-2xl">
+              <h3 className="text-base font-bold text-gray-800 mb-4 pb-2 border-b">Edit Riwayat Gaji</h3>
+              <form onSubmit={handleUpdateGaji} className="space-y-3 text-xs">
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Gaji Pokok (Rp)</label>
+                  <input 
+                    type="number" 
+                    required
+                    value={formEditGaji.gajiPokok}
+                    onChange={(e) => setFormEditGaji({...formEditGaji, gajiPokok: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">TMT Gaji (Tanggal Berlaku)</label>
+                  <input 
+                    type="date" 
+                    required
+                    value={formEditGaji.tmtGaji}
+                    onChange={(e) => setFormEditGaji({...formEditGaji, tmtGaji: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Nomor SK</label>
+                  <input 
+                    type="text" 
+                    required
+                    value={formEditGaji.noSk}
+                    onChange={(e) => setFormEditGaji({...formEditGaji, noSk: e.target.value})}
+                    className="w-full border rounded p-2 text-xs focus:outline-none focus:border-sky-500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-medium text-gray-700 mb-1">Ganti Berkas SK Gaji (Opsional PDF)</label>
+                  <input 
+                    type="file" 
+                    accept="application/pdf"
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files[0]) {
+                        setEditFileSk(e.target.files[0])
+                      }
+                    }}
+                    className="w-full border rounded p-1.5 bg-gray-50 text-gray-600 text-xs"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-4 border-t">
+                  <button 
+                    type="button" 
+                    onClick={() => setShowEditModal(false)}
+                    className="px-4 py-2 border rounded text-gray-600 hover:bg-gray-100 font-medium"
+                  >
+                    Batal
+                  </button>
+                  <button 
+                    type="submit" 
+                    disabled={uploading}
+                    className="px-4 py-2 bg-[#1b2a4a] text-white rounded font-semibold hover:bg-sky-900 transition disabled:opacity-50"
+                  >
+                    {uploading ? 'Menyimpan...' : 'Simpan Perubahan'}
                   </button>
                 </div>
               </form>
