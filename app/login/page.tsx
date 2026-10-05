@@ -45,8 +45,8 @@ export default function LoginPage() {
               className="w-12 h-12 object-contain"
             />
             <div className="text-left">
-              <h3 className="text-xs font-bold text-gray-800 tracking-wider">ARSIP KEPEGAWAIAN</h3>
-              <h3 className="text-xs font-bold text-gray-800 tracking-wider">BBWS VIII</h3>
+              <h3 className="text-xs font-bold text-gray-800 tracking-wider">SIMPEG Sistem Informasi</h3>
+              <h3 className="text-xs font-bold text-gray-800 tracking-wider">Kepegawaian BBWS VIII</h3>
             </div>
           </div>
           <h2 className="text-lg font-semibold text-gray-800 mt-1">Login</h2>

@@ -102,7 +102,7 @@ export default function DashboardPage() {
               className="w-8 h-8 object-contain"
             />
             <span className="text-xs font-bold text-[#1b2a4a] leading-tight">
-              ARSIP KEPEGAWAIAN<br/>BBWS VIII
+              SIMPEG Sistem Informasi <br/>Kepegawaian BBWS VIII
             </span>
           </div>
 
