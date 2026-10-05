@@ -73,6 +73,13 @@ export default function InfoPegawaiPage() {
     fetchDataAndValidateSession()
   }, [router])
 
+  const handleLogout = () => {
+    if (confirm('Apakah Anda yakin ingin keluar dari akun?')) {
+      localStorage.clear() // Menghapus seluruh data sesi di localStorage
+      router.push('/login')
+    }
+  }
+
   const fetchData = async () => {
     const nipAktif = localStorage.getItem('nip_aktif')
 
@@ -203,6 +210,16 @@ export default function InfoPegawaiPage() {
           {isAdmin && (
             <a href="/dashboard/tambah-pegawai" className="block p-2.5 rounded hover:bg-gray-100 text-gray-700">Tambah Pegawai</a>
           )}
+
+          {/* Tombol Logout di Bawah Sidebar */}
+        <div className="pt-4 border-t">
+          <button 
+            onClick={handleLogout}
+            className="w-full bg-rose-50 hover:bg-rose-100 text-rose-700 font-semibold py-2.5 px-4 rounded-lg text-xs transition flex items-center justify-center gap-2"
+          >
+            🚪 Keluar (Logout)
+          </button>
+        </div>
         </nav>
       </aside>
 
