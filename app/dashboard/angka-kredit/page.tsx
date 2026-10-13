@@ -169,7 +169,6 @@ export default function RiwayatAngkaKreditPage() {
         jumlah_ak: parseFloat(formAk.jumlahAk) || 0,
         tmt_ak: formAk.tmtAk,
         arsip_sk_url: publicUrl,
-        status_verifikasi: isAdmin ? 'Diterima' : 'Pending',
         updated_at: new Date().toISOString()
       }
 
@@ -181,7 +180,7 @@ export default function RiwayatAngkaKreditPage() {
       if (error) {
         alert('Gagal menyimpan data angka kredit: ' + error.message)
       } else {
-        alert(isAdmin ? 'Data angka kredit berhasil ditambahkan!' : 'Usulan angka kredit berhasil dikirim dan menunggu verifikasi admin.')
+        alert(isAdmin ? 'Data angka kredit berhasil ditambahkan!' : 'Usulan angka kredit berhasil dikirim.')
         if (data) {
           const itemBaru = data[0]
           setAkList([itemBaru, ...akList])
@@ -482,9 +481,7 @@ export default function RiwayatAngkaKreditPage() {
                           {isAdmin && (
                             <td className="p-3 text-center">
                               <div className="flex items-center justify-center gap-2">
-                                {/* Tombol Edit */}
                                 <button onClick={() => handleOpenEdit(item)} className="p-1 text-amber-600 hover:bg-amber-50 rounded" title="Edit">✏️</button>
-                                {/* Tombol Hapus */}
                                 <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
                               </div>
                             </td>
