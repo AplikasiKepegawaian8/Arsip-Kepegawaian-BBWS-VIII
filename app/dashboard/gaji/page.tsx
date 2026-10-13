@@ -161,7 +161,6 @@ export default function RiwayatGajiPage() {
         no_sk: formGaji.noSk,
         arsip_sk_url: publicUrl,
         status_verifikasi: isAdmin ? 'Diterima' : 'Pending',
-        updated_by: employee.nama,
         updated_at: new Date().toISOString()
       }
 
@@ -386,7 +385,7 @@ export default function RiwayatGajiPage() {
           </button>
         </div>
 
-        {/* TAB 1: RIWAYAT GAJI (DENGAN KOLOM STATUS DI SAMPING KANAN NO SK) */}
+        {/* TAB 1: RIWAYAT GAJI */}
         {activeTab === 'riwayat' && (
           <div>
             <div className="mb-4">
@@ -434,7 +433,6 @@ export default function RiwayatGajiPage() {
                           <td className="p-3 font-semibold text-emerald-600">Rp {parseInt(item.gaji_pokok || 0).toLocaleString('id-ID')}</td>
                           <td className="p-3">{item.tmt_gaji}</td>
                           <td className="p-3 font-mono text-[11px]">{item.no_sk}</td>
-                          {/* KOLOM STATUS DI SAMPING KANAN NO SK */}
                           <td className="p-3 text-center">
                             <span className={`px-2.5 py-1 rounded-full text-[10px] font-bold uppercase ${
                               item.status_verifikasi === 'Diterima' ? 'bg-emerald-100 text-emerald-800' :
@@ -465,9 +463,7 @@ export default function RiwayatGajiPage() {
                           {isAdmin && (
                             <td className="p-3 text-center">
                               <div className="flex items-center justify-center gap-2">
-                                {/* Tombol Edit */}
                                 <button onClick={() => handleOpenEdit(item)} className="p-1 text-amber-600 hover:bg-amber-50 rounded" title="Edit">✏️</button>
-                                {/* Tombol Hapus */}
                                 <button onClick={() => handleDelete(item.id)} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Hapus">🗑️</button>
                               </div>
                             </td>
